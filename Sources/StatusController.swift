@@ -120,7 +120,7 @@ final class IconView: NSView {
     }
 }
 
-final class StatusController: NSObject, NSMenuDelegate {
+final class StatusController: NSObject {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     lazy var iconView: IconView = {
         let v = IconView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
@@ -148,11 +148,6 @@ final class StatusController: NSObject, NSMenuDelegate {
         iconView.frame = slot
     }
 
-    // Staleness caps - aligned with extension's heartbeat refresh
-    let workingStaleCap: TimeInterval = 180 // 3 missed heartbeats (30s each)
-    let permissionStaleCap: TimeInterval = 7200 // 2 hours
-    let idleReapAfter: TimeInterval = 900 // 15 minutes for dead sessions
-
     var pollTimer: Timer?
     // 30fps animation timer driving layer transforms only (no image swaps,
     // so no button relayout per frame). Idles at zero: the timer stops in
@@ -166,35 +161,6 @@ final class StatusController: NSObject, NSMenuDelegate {
     var notNeededSince: Date?
     let launchGrace: TimeInterval = 5
     let idleQuitDelay: TimeInterval = 3
-
-    struct Session {
-        var id: String
-        var state: String
-        var label: String
-        var project: String
-        var cwd: String
-        var sessionName: String
-        var termProgram: String
-        var pid: Int32
-        var started: Bool
-        var startedAt: Double
-        var ts: Double
-        var eff: String = ""
-
-        init(json o: [String: Any], id: String) {
-            self.id = id
-            self.state = o["state"] as? String ?? "idle"
-            self.label = o["label"] as? String ?? ""
-            self.project = o["project"] as? String ?? ""
-            self.cwd = o["cwd"] as? String ?? ""
-            self.sessionName = o["sessionName"] as? String ?? ""
-            self.termProgram = o["term_program"] as? String ?? ""
-            self.pid = Int32(truncatingIfNeeded: (o["pid"] as? NSNumber)?.intValue ?? 0)
-            self.started = o["started"] as? Bool ?? true
-            self.startedAt = (o["startedAt"] as? NSNumber)?.doubleValue ?? 0
-            self.ts = (o["ts"] as? NSNumber)?.doubleValue ?? 0
-        }
-    }
 
     var sessions: [String: Session] = [:]
     var fileMTimes: [String: Date] = [:]
@@ -229,9 +195,10 @@ final class StatusController: NSObject, NSMenuDelegate {
     var showTimer = true
     var showLabel = true
     let cues = CuePlayer()
-    // Last effective state per session, tracked outside Session because a state
+    // Last reported state per session, tracked outside Session because a state
     // file rewrite replaces the Session struct and would reset its stored state.
-    var lastEff: [String: String] = [:]
+    // The sound follows the reported state: a staleness timeout leaves it alone.
+    var lastReported: [String: String] = [:]
 
     override init() {
         dashboard = DashboardStore(cachePath: dashboardCachePath, sessionRoot: sessionRootDir)
@@ -301,86 +268,38 @@ final class StatusController: NSObject, NSMenuDelegate {
         if panelPopover?.isShown == true { menuPanel.refreshSessions(panelSessions()) }
     }
 
-    func stateFileNames() -> [String] {
-        guard let files = try? FileManager.default.contentsOfDirectory(atPath: stateDir) else {
-            NSLog("PiStatusBar: cannot read state directory")
-            return []
-        }
-        return files.filter { $0.hasSuffix(".json") }
-    }
-
     func reloadSessions() {
-        let fm = FileManager.default
-        let files = stateFileNames()
-        let present = Set(files)
-        for key in Array(fileMTimes.keys) where !present.contains(key) {
-            fileMTimes[key] = nil
-            sessions[(key as NSString).deletingPathExtension] = nil
+        let (loaded, removed) = SessionRules.loadSessions(stateDir: stateDir, mtimes: &fileMTimes)
+        for id in removed {
+            sessions[id] = nil
+            lastReported[id] = nil
         }
-        for f in files {
-            let full = (stateDir as NSString).appendingPathComponent(f)
-            guard let attrs = try? fm.attributesOfItem(atPath: full),
-                  let m = attrs[.modificationDate] as? Date else { continue }
-            if fileMTimes[f] == m { continue }
-            fileMTimes[f] = m
-            guard let data = fm.contents(atPath: full) else {
-                NSLog("PiStatusBar: cannot read state file \(f)")
-                continue
-            }
-            guard let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                NSLog("PiStatusBar: cannot parse state file \(f)")
-                continue
-            }
-            sessions[(f as NSString).deletingPathExtension] = Session(json: o, id: (f as NSString).deletingPathExtension)
-        }
-    }
-
-    func priority(of eff: String) -> Int {
-        switch eff {
-        case "permission": return 2
-        case "thinking", "tool": return 1
-        default: return 0
-        }
-    }
-
-    func effectiveState(_ s: Session, now: Double) -> String {
-        if s.state == "thinking" || s.state == "tool" || s.state == "permission" {
-            // Working states heartbeat every 30s, so ~3 missed beats means the
-            // session is stuck or its writer died. Permission has no heartbeat
-            // (waiting on the user can legitimately last hours).
-            let cap: Double = s.state == "permission" ? permissionStaleCap : workingStaleCap
-            if now - s.ts > cap { return "idle" }
-            return s.state
-        }
-        return s.state == "done" ? "idle" : s.state
+        for (id, s) in loaded { sessions[id] = s }
     }
 
     func evaluate() {
         let now = Date().timeIntervalSince1970
         for id in Array(sessions.keys) {
             guard var s = sessions[id] else { continue }
-            let previous = lastEff[id]
-            s.eff = effectiveState(s, now: now)
-            // Reap on process death: kill(pid,0). An idle file older than
-            // idleReapAfter is reaped too, so a reused PID cannot pin it, and
-            // files with no pid fall back to the same age prune.
-            let staleIdle = s.eff == "idle" && now - s.ts > idleReapAfter
-            let dead = staleIdle || (s.pid > 0 && !pidAlive(s.pid))
-            if dead {
+            // What a session file means lives in SessionRules, where it is
+            // covered by tests/sessionrules.
+            let decision = SessionRules.decide(state: s.state, ts: s.ts, pid: s.pid,
+                                               processAlive: SessionRules.processAlive(s.pid),
+                                               previousReported: lastReported[id], now: now)
+            if decision.reaped {
                 try? FileManager.default.removeItem(atPath: (stateDir as NSString).appendingPathComponent(id + ".json"))
                 sessions[id] = nil
                 fileMTimes[id + ".json"] = nil
-                lastEff[id] = nil
+                lastReported[id] = nil
                 continue
             }
-            lastEff[id] = s.eff
-            // The rules for what deserves a sound live in CuePlayer.cue, where
-            // they are covered by tests/cues.
-            if let cue = CuePlayer.cue(from: previous, to: s.eff) { cues.play(cue) }
+            s.eff = decision.effective
+            lastReported[id] = s.state
+            if let cue = decision.cue { cues.play(cue) }
             sessions[id] = s
         }
         let lead = sessions.values.max { a, b in
-            let pa = priority(of: a.eff), pb = priority(of: b.eff)
+            let pa = SessionRules.priority(of: a.eff), pb = SessionRules.priority(of: b.eff)
             return pa == pb ? a.ts < b.ts : pa < pb
         }
         statusItem.button?.toolTip = lead.map { s in
@@ -401,11 +320,6 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     func renderResting() { render(label: "", animate: false, startedAt: 0) }
 
-    func pidAlive(_ pid: Int32) -> Bool {
-        if pid <= 0 { return false }
-        return kill(pid, 0) == 0 || errno == EPERM
-    }
-
     func checkLifecycle() {
         let now = Date()
         if now.timeIntervalSince(launchedAt) < launchGrace { return }
@@ -414,10 +328,15 @@ final class StatusController: NSObject, NSMenuDelegate {
             notNeededSince = nil
             return
         }
-        // Any session file means a Pi process is still around. Truly stale
-        // files are already reaped in evaluate(), so idle sessions keep the
-        // app alive instead of relaunching it on every turn.
-        if !sessions.isEmpty {
+        // The open panel pins the app the same way.
+        if panelPopover?.isShown == true {
+            notNeededSince = nil
+            return
+        }
+        // A live Pi process keeps the app alive. A session that idles stops
+        // refreshing its file, so the file's age says nothing about the
+        // process behind it.
+        if !sessions.isEmpty || SessionRules.hasLiveProcess(stateDir: stateDir) {
             notNeededSince = nil
             return
         }
@@ -533,7 +452,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     // Sonoma-style state parts: colored glyph + name + one-line status text.
     func sessionParts(_ s: Session, eff: String? = nil) -> (glyph: String, name: String, sub: String, color: NSColor) {
         let now = Date().timeIntervalSince1970
-        let e = eff ?? (s.eff.isEmpty ? effectiveState(s, now: now) : s.eff)
+        let e = eff ?? (s.eff.isEmpty ? SessionRules.effectiveState(state: s.state, ts: s.ts, now: now) : s.eff)
         // Pi's own session name is what distinguishes two sessions in the
         // same project; fall back to the project folder when it is empty.
         let name = !s.sessionName.isEmpty ? s.sessionName

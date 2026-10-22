@@ -40,6 +40,9 @@ expect("permission", "permission", nil, "still waiting, no repeat")
 expect("thinking", "idle", .done, "turn finished")
 expect("tool", "idle", .done, "tool finished and went idle")
 expect("permission", "idle", .done, "answered, then finished")
+// The extension reports a finished turn as "done"; it counts as idle.
+expect("thinking", "done", .done, "turn finished and reported done")
+expect("permission", "done", .done, "answered, then finished and reported done")
 
 // Everything else is noise and must stay silent.
 expect("idle", "thinking", nil, "new turn starting is not a cue")

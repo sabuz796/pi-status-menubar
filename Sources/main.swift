@@ -23,6 +23,12 @@ if CommandLine.arguments.contains("--selfcheck") {
     try? FileManager.default.removeItem(atPath: selfCheckCache)
     exit(SelfCheck.run(sessionRoot: sessionRootDir, cachePath: selfCheckCache))
 }
+// One instance only: a second launch wakes the running one and quits.
+if let running = runningInstancePid() {
+    NSRunningApplication(processIdentifier: running)?.activate(options: [.activateAllWindows])
+    exit(0)
+}
+
 let amber = NSColor(srgbRed: 0.95, green: 0.73, blue: 0.18, alpha: 1) // permission dot
 
 // Icon view: a layer-hosted NSView inside the status button. Swapping
@@ -41,6 +47,17 @@ NotificationCenter.default.addObserver(
 ) { _ in
     // Clean up PID file on exit
     try? FileManager.default.removeItem(atPath: appPidPath)
+    // The key monitor is a global event tap: drop it on the way out.
+    controller.teardown()
 }
 
 app.run()
+
+// The pid of an already running instance, if it is still alive.
+func runningInstancePid() -> Int32? {
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: appPidPath)) else { return nil }
+    let text = String(decoding: data, as: UTF8.self)
+    guard let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+          SessionRules.processAlive(pid) else { return nil }
+    return pid
+}

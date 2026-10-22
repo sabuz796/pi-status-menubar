@@ -20,6 +20,11 @@ jobs:
           swiftc -O Sources/Sounds.swift tests/cues/main.swift -o /tmp/cues
           /tmp/cues
 
+      - name: Session rule tests
+        run: |
+          swiftc -O Sources/Sounds.swift Sources/SessionRules.swift tests/sessionrules/main.swift -o /tmp/sessionrules
+          /tmp/sessionrules
+
       - name: Install TypeScript toolchain
         run: npm install --no-audit --no-fund
 
@@ -38,6 +43,8 @@ jobs:
           test -f Sources/main.swift
           test -f Sources/Sounds.swift
           test -f tests/cues/main.swift
+          test -f Sources/SessionRules.swift
+          test -f tests/sessionrules/main.swift
           test -f tools/AppIcon/main.swift
           test -f images/app-icon.svg
           test -f images/pi.png
