@@ -59,6 +59,15 @@ private func rowButton(_ title: String, checked: Bool?) -> (mark: NSTextField, b
     return (mark, b)
 }
 
+// The panel's own background. Painting it solid is what keeps the system
+// material (glass) from showing through, and it matches the dashboard card.
+final class PanelBackgroundView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        dirtyRect.fill()
+    }
+}
+
 final class MenuPanelViewController: NSViewController {
     typealias SessionRow = (glyph: String, glyphColor: NSColor, name: String, state: String,
                             id: String, app: String)
@@ -78,7 +87,7 @@ final class MenuPanelViewController: NSViewController {
     private let stack = NSStackView()
 
     override func loadView() {
-        let container = NSView()
+        let container = PanelBackgroundView()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 0
