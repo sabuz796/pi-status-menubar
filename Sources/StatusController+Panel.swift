@@ -10,9 +10,11 @@ extension StatusController {
             shown.performClose(nil)
             return
         }
-        // An accessory app resigns active when tracking stops; same trick the
-        // Dashboard popover already uses, or the panel would flicker away.
-        NSApp.activate(ignoringOtherApps: true)
+        // The panel does not take the keyboard: activating the app here would
+        // swallow the keystrokes of whatever the user was typing in. The
+        // popover shows and stays shown without being key (measured), and a
+        // click inside it activates the app, which is when the key monitor
+        // below starts working.
         menuPanel.rebuild()
         let p = NSPopover()
         p.behavior = .transient
@@ -70,11 +72,9 @@ extension StatusController {
         evaluate()
     }
 
-    // App-level keyboard paths the panel cannot get from an NSMenu:
-    // Escape closes the panel, ⌘D opens the Dashboard, ⌘Q quits.
-    // A local monitor hears keys only while the app is active, which for an
-    // accessory app means right after it was activated; that is the state the
-    // panel and its tips assume anyway.
+    // App-level keyboard paths, usable once the app is active (after a click
+    // inside the panel). A local monitor only hears events the app receives,
+    // so these do not fire while another app has the keyboard.
     func startKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

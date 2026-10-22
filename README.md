@@ -31,7 +31,7 @@ Two parts talk through files. No socket, no server.
 | Awaiting input (confirm/select) | amber dot, soft pop-in + gentle pulse |
 | Idle / done | static dimmed π, zero motion (timer stopped) |
 
-Clicking the menu bar item opens a popover panel with the system-drawn arrow, the same way the Dashboard does. It lists the live sessions first, then a View section (Show Timer, Show Text), a Sounds section (Permission Sound, Finish Sound, each with a ▶ button that previews that one sound), Dashboard… and Quit. Escape closes the panel, ⌘D opens the Dashboard and ⌘Q quits. Clicking a session row activates the terminal application (when `TERM_PROGRAM` is known). Selecting the exact window or tab is not supported: the app only runs `open -a <AppName>`, which brings the application to the front.
+Clicking the menu bar item opens a popover panel with the system-drawn arrow, the same way the Dashboard does. It lists the live sessions first, then a View section (Show Timer, Show Text), a Sounds section (Permission Sound, Finish Sound, each with a ▶ button that previews that one sound), Dashboard… and Quit. The panel never takes the keyboard, so the app you are typing in keeps the focus; click outside to dismiss it. Clicking a session row activates the terminal application (when `TERM_PROGRAM` is known). Selecting the exact window or tab is not supported: the app only runs `open -a <AppName>`, which brings the application to the front.
 
 ## Sounds
 

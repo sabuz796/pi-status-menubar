@@ -11,6 +11,16 @@ final class PanelHoverRow: NSView {
         didSet { needsDisplay = true }
     }
 
+    // VoiceOver presses the row itself, so the row carries the action.
+    var activate: (() -> Void)?
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityPerformPress() -> Bool {
+        guard let activate else { return false }
+        activate()
+        return true
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if trackingAreas.isEmpty {
@@ -30,9 +40,23 @@ final class PanelHoverRow: NSView {
     }
 }
 
-// NSClickGestureRecognizer subclass that carries its row action.
-final class PanelActionGesture: NSClickGestureRecognizer {
-    var run: () -> Void = {}
+// A row's clickable label is a real borderless button: AppKit then gives it
+// the right accessibility name and value, which a plain text field does not.
+// The checkmark is a separate element so it stays out of the spoken name.
+private func rowButton(_ title: String, checked: Bool?) -> (mark: NSTextField, button: NSButton) {
+    let mark = NSTextField(labelWithAttributedString: NSAttributedString(
+        string: checked == true ? "✓" : " ",
+        attributes: [.font: NSFont.menuFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
+    mark.translatesAutoresizingMaskIntoConstraints = false
+    mark.widthAnchor.constraint(equalToConstant: 12).isActive = true
+    let b = NSButton()
+    b.isBordered = false
+    b.attributedTitle = NSAttributedString(
+        string: title,
+        attributes: [.font: NSFont.menuFont(ofSize: 13), .foregroundColor: NSColor.labelColor])
+    (b.cell as? NSButtonCell)?.alignment = .left
+    b.setAccessibilityLabel(title)
+    return (mark, b)
 }
 
 final class MenuPanelViewController: NSViewController {
@@ -50,7 +74,7 @@ final class MenuPanelViewController: NSViewController {
     var quitRequested: () -> Void = {}
 
     // Session status labels that tick() keeps current while the panel is open.
-    private var stateLabels: [String: NSTextField] = [:]
+    private var sessionLabels: [String: (state: NSTextField, dot: NSTextField, name: NSButton)] = [:]
     private let stack = NSStackView()
 
     override func loadView() {
@@ -72,7 +96,7 @@ final class MenuPanelViewController: NSViewController {
 
     func rebuild() {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        stateLabels.removeAll()
+        sessionLabels.removeAll()
         let r = rows()
 
         if !r.sessions.isEmpty {
@@ -88,9 +112,12 @@ final class MenuPanelViewController: NSViewController {
         soundRow("Permission Sound", key: "permissionSound", enabled: r.permission, tag: 0)
         soundRow("Finish Sound", key: "doneSound", enabled: r.finish, tag: 1)
         stack.addArrangedSubview(divider())
-        actionRow("Dashboard…", hint: "⌘D", requested: { [weak self] in self?.dashboardRequested() })
+        // No key hints: the panel does not take the keyboard, so ⌘D here would
+        // reach the user's app instead. A shortcut that only works once the
+        // user has clicked in is not worth advertising.
+        actionRow("Dashboard…", requested: { [weak self] in self?.dashboardRequested() })
         stack.addArrangedSubview(divider())
-        actionRow("Quit", hint: "⌘Q", requested: { [weak self] in self?.quitRequested() })
+        actionRow("Quit", requested: { [weak self] in self?.quitRequested() })
         stack.addArrangedSubview(divider())
         stack.addArrangedSubview(NSView())
 
@@ -99,9 +126,16 @@ final class MenuPanelViewController: NSViewController {
         preferredContentSize = NSSize(width: 300, height: stack.fittingSize.height + 14)
     }
 
+    // The state text and the dot color move together: a dot that still reads
+    // "idle" next to the words "Awaiting input" tells the user two things.
     func refreshSessions(_ sessions: [SessionRow]) {
         for s in sessions {
-            stateLabels[s.id]?.stringValue = s.state
+            guard let labels = sessionLabels[s.id] else { continue }
+            labels.state.stringValue = s.state
+            labels.dot.attributedStringValue = NSAttributedString(
+                string: s.glyph,
+                attributes: [.font: NSFont.menuFont(ofSize: 13), .foregroundColor: s.glyphColor])
+            labels.name.setAccessibilityValue(s.state)
         }
     }
 
@@ -143,18 +177,21 @@ final class MenuPanelViewController: NSViewController {
     private func toggleRow(_ title: String, key: String, checked: Bool) {
         let row = PanelHoverRow()
         row.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)")
-        let label = NSTextField(labelWithAttributedString: NSAttributedString(
-            string: (checked ? "✓ " : "   ") + title,
-            attributes: [.font: NSFont.menuFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
-        addRowToStack(row, label, trailing: nil)
-        makeRowClickable(row)
+        let (mark, label) = rowButton(title, checked: checked)
+        label.target = self
+        label.action = #selector(toggleRowPressed(_:))
+        label.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)")
+        label.setAccessibilityValue(checked ? "on" : "off")
+        addRowToStack(row, leading: [mark, label], trailing: nil)
     }
 
     private func soundRow(_ title: String, key: String, enabled: Bool, tag: Int) {
         let row = PanelHoverRow()
-        let label = NSTextField(labelWithAttributedString: NSAttributedString(
-            string: (enabled ? "✓ " : "   ") + title,
-            attributes: [.font: NSFont.menuFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
+        let (mark, label) = rowButton(title, checked: enabled)
+        label.target = self
+        label.action = #selector(toggleRowPressed(_:))
+        label.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)")
+        label.setAccessibilityValue(enabled ? "on" : "off")
         let play = NSButton()
         play.isBordered = false
         play.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play test sound")
@@ -163,10 +200,8 @@ final class MenuPanelViewController: NSViewController {
         play.target = self
         play.action = #selector(playPressed(_:))
         play.tag = tag
-        addRowToStack(row, label, trailing: play)
-        // The trailing ▶ is its own control, so the toggle lives on the label.
-        label.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)")
-        makeRowClickable(label)
+        play.setAccessibilityLabel("Play \(title)")
+        addRowToStack(row, leading: [mark, label], trailing: play)
     }
 
     private func sessionRow(_ s: SessionRow) {
@@ -177,16 +212,18 @@ final class MenuPanelViewController: NSViewController {
             .font: NSFont.menuFont(ofSize: 13), .foregroundColor: s.glyphColor,
         ]))
         dot.translatesAutoresizingMaskIntoConstraints = false
-        let name = NSTextField(labelWithAttributedString: NSAttributedString(string: s.name, attributes: [
-            .font: NSFont.menuFont(ofSize: 13), .foregroundColor: NSColor.labelColor,
-        ]))
+        let name = rowButton(s.name, checked: nil).button
         name.translatesAutoresizingMaskIntoConstraints = false
+        name.target = self
+        name.action = #selector(sessionPressed(_:))
+        name.identifier = NSUserInterfaceItemIdentifier("session|\(s.id)|\(s.app)")
+        name.setAccessibilityValue(s.state)
         let state = NSTextField(labelWithAttributedString: NSAttributedString(
             string: s.state,
             attributes: [.font: NSFont.systemFont(ofSize: 11),
                          .foregroundColor: NSColor.secondaryLabelColor]))
         state.translatesAutoresizingMaskIntoConstraints = false
-        stateLabels[s.id] = state
+        sessionLabels[s.id] = (state, dot, name)
 
         let top = NSStackView(views: [dot, name])
         top.orientation = .horizontal
@@ -206,33 +243,31 @@ final class MenuPanelViewController: NSViewController {
         ])
         stack.addArrangedSubview(row)
         row.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: 0).isActive = true
-        makeRowClickable(row)
     }
-
-    private func actionRow(_ title: String, hint: String, requested: @escaping () -> Void) {
+    private func actionRow(_ title: String, requested: @escaping () -> Void) {
         let row = PanelHoverRow()
         row.identifier = NSUserInterfaceItemIdentifier("action|\(title)")
-        let label = NSTextField(labelWithAttributedString: NSAttributedString(
-            string: title, attributes: [.font: NSFont.menuFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
-        let hintLabel = NSTextField(labelWithAttributedString: NSAttributedString(
-            string: hint, attributes: [.font: NSFont.menuFont(ofSize: 13),
-                                       .foregroundColor: NSColor.secondaryLabelColor]))
-        let gesture = PanelActionGesture(target: self, action: #selector(actionClicked(_:)))
-        gesture.run = requested
-        row.addGestureRecognizer(gesture)
-        addRowToStack(row, label, trailing: hintLabel)
+        let label = rowButton(title, checked: nil).button
+        label.target = self
+        label.action = #selector(actionRowPressed(_:))
+        label.identifier = NSUserInterfaceItemIdentifier("action|\(title)")
+        addRowToStack(row, leading: [label], trailing: nil)
     }
 
     // Single-line row: label on the leading side, optional right-aligned
     // control (key hint or ▶). Join the stack BEFORE any constraint that
     // references the stack width, or Auto Layout throws "no common ancestor".
-    private func addRowToStack(_ row: NSView, _ label: NSTextField, trailing: NSView?) {
-        label.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(label)
+    private func addRowToStack(_ row: NSView, leading: [NSView], trailing: NSView?) {
+        let lead = NSStackView(views: leading)
+        lead.orientation = .horizontal
+        lead.alignment = .centerY
+        lead.spacing = 4
+        lead.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(lead)
         NSLayoutConstraint.activate([
             row.heightAnchor.constraint(equalToConstant: 22),
-            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 22),
-            label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            lead.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 22),
+            lead.centerYAnchor.constraint(equalTo: row.centerYAnchor),
         ])
         if let trailing = trailing {
             trailing.translatesAutoresizingMaskIntoConstraints = false
@@ -246,28 +281,29 @@ final class MenuPanelViewController: NSViewController {
         row.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: 0).isActive = true
     }
 
-    private func makeRowClickable(_ view: NSView) {
-        view.addGestureRecognizer(
-            NSClickGestureRecognizer(target: self, action: #selector(rowClicked(_:))))
-    }
-
     // MARK: actions
-
-    @objc private func rowClicked(_ gr: NSClickGestureRecognizer) {
-        guard let id = gr.view?.identifier?.rawValue else { return }
-        let parts = id.components(separatedBy: "|")
-        switch parts.first {
-        case "toggle": if parts.count > 1 { toggled(parts[1]) }
-        case "session": if parts.count > 2 {
-            sessionOpened(parts[1], parts.dropFirst(2).joined(separator: "|"))
-        }
-        default: break
-        }
+    // One path for both the mouse and VoiceOver, so the checkmark redraws
+    // the same way whoever pressed it.
+    private func toggleKey(_ key: String) {
+        toggled(key)
         rebuild()
     }
 
-    @objc private func actionClicked(_ gr: NSClickGestureRecognizer) {
-        (gr as? PanelActionGesture)?.run()
+    @objc private func toggleRowPressed(_ sender: NSButton) {
+        guard let key = sender.identifier?.rawValue.components(separatedBy: "|").last else { return }
+        toggleKey(key)
+    }
+
+    @objc private func sessionPressed(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue.components(separatedBy: "|") else { return }
+        guard id.count > 2 else { return }
+        sessionOpened(id[1], id.dropFirst(2).joined(separator: "|"))
+    }
+
+    @objc private func actionRowPressed(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue.components(separatedBy: "|").last else { return }
+        if id.hasPrefix("Dashboard") { dashboardRequested(); return }
+        if id == "Quit" { quitRequested() }
     }
 
     @objc private func playPressed(_ sender: NSButton) {
