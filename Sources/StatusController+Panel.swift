@@ -17,6 +17,10 @@ extension StatusController {
         // below starts working.
         menuPanel.rebuild()
         let p = NSPopover()
+        // The popover's default appearance is the vibrant material (glass).
+        // The standard system look is what we want: solid, and following the
+        // machine's light or dark setting.
+        p.appearance = NSApp.effectiveAppearance
         p.behavior = .transient
         p.contentViewController = menuPanel
         p.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)

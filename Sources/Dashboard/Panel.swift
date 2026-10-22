@@ -28,6 +28,10 @@ final class DashboardPopoverController: NSObject, NSPopoverDelegate {
             // this accessory app resigns the moment the status menu stops
             // tracking. Activating first is what keeps it on screen.
             NSApp.activate(ignoringOtherApps: true)
+            // The default popover appearance is the vibrant material (glass).
+            // The standard system look is solid and follows the machine's
+            // light or dark setting.
+            popover.appearance = NSApp.effectiveAppearance
             popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
         }
         startTimer()

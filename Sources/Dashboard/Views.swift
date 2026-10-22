@@ -132,21 +132,13 @@ enum Format {
     }
 }
 
-// The popover's own card. Blur unless the user asked for reduced transparency,
-// in which case an opaque window background stands in.
-final class CardView: NSVisualEffectView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        state = .active
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
-            material = .windowBackground
-            blendingMode = .withinWindow
-        } else {
-            material = .popover
-            blendingMode = .behindWindow
-        }
+// The popover's own card. A plain system background, not a blur: the
+// dashboard is a reading surface, so a solid fill keeps the numbers legible.
+final class CardView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        dirtyRect.fill()
     }
-    required init?(coder: NSCoder) { fatalError("not supported") }
 }
 
 // The mark from the header of the reference: a rounded square holding the pi

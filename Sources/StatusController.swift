@@ -166,6 +166,7 @@ final class StatusController: NSObject {
     var fileMTimes: [String: Date] = [:]
     var panelPopover: NSPopover?
     var keyMonitor: Any?
+    var appearanceObservation: NSKeyValueObservation?
     private(set) lazy var menuPanel: MenuPanelViewController = {
         let vc = MenuPanelViewController()
         vc.rows = { [weak self] in
@@ -224,6 +225,12 @@ final class StatusController: NSObject {
         // A new launch voids a prior explicit Quit.
         try? FileManager.default.removeItem(atPath: quitIntentPath)
         ensureExtensionInstalled()
+        // A light or dark switch while the panel is open must not leave it
+        // painted in the old appearance. KVO is the documented way to watch
+        // NSApp.effectiveAppearance; there is no notification for it.
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+            self?.panelPopover?.appearance = NSApp.effectiveAppearance
+        }
         // Warm the dashboard cache in the background so the first open renders
         // real numbers instead of the empty snapshot.
         dashboard.refresh()
