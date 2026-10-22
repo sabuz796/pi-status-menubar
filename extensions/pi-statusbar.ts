@@ -34,7 +34,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const BUNDLE_ID = "com.local.pistatusbar";
@@ -127,12 +127,16 @@ function readPrev(id: string): Partial<StatusFile> {
 }
 
 function writeAtomic(file: string, obj: StatusFile): void {
+	const tmp = file + "." + process.pid + ".tmp";
 	try {
 		fs.mkdirSync(STATE_DIR, { recursive: true });
-		const tmp = file + "." + process.pid + ".tmp";
 		fs.writeFileSync(tmp, JSON.stringify(obj));
 		fs.renameSync(tmp, file);
 	} catch (e) {
+		// A failed write leaves the temp file behind, so drop it.
+		try {
+			fs.rmSync(tmp, { force: true });
+		} catch {}
 		console.warn("pi-statusbar: state write failed", e);
 	}
 }
@@ -150,26 +154,24 @@ function pidAlive(pid: number): boolean {
 // NOTE: process.pid here IS the Pi process because the extension runs
 // inside Pi's Node.js process space. If the extension ever runs out-of-process,
 // this would need to derive the actual Pi PID from Pi's API.
-// pgrep blocks the event loop, so cache the answer for a few seconds.
+// The check runs on every Pi event and the answer rarely changes, so cache
+// it for a few seconds.
 let appCacheAt = 0;
 let appCacheVal = false;
 
+// The PID file is the source of truth: the Swift app writes its PID on
+// startup and removes it on exit. A pgrep by bundle id cannot work here,
+// because the running process command line is the app binary path
+// (/Applications/Pi Status Bar.app/Contents/MacOS/PiStatusBar), not the
+// bundle id.
 function appRunning(): boolean {
 	if (Date.now() - appCacheAt < 5000) return appCacheVal;
 	let result = false;
-	// Check PID file written by Swift app on startup - avoids pgrep false positives
 	const pidFile = path.join(DIR, "app.pid");
 	try {
 		const pid = parseInt(fs.readFileSync(pidFile, "utf8"), 10);
 		if (pid && pidAlive(pid)) result = true;
 	} catch {}
-	// Fallback: pgrep by bundle ID (more specific than process name)
-	if (!result) {
-		try {
-			execSync(`pgrep -f "com.local.pistatusbar"`, { stdio: "ignore" });
-			result = true;
-		} catch {}
-	}
 	appCacheAt = Date.now();
 	appCacheVal = result;
 	return result;
