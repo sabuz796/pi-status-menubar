@@ -5,8 +5,12 @@ cd "$(dirname "$0")"
 
 APP="build/Pi Status Bar.app"
 BIN="$APP/Contents/MacOS/PiStatusBar"
-# Version comes from the latest git tag (GitHub releases), override with PISTATUS_VERSION=1.2.3
-VERSION="${PISTATUS_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.5.9)}"
+# Version comes from the latest git tag (GitHub releases), override with PISTATUS_VERSION=1.2.3.
+# The || true matters: set -euo pipefail would otherwise abort on a tagless checkout.
+VERSION="${PISTATUS_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || true)}"
+VERSION="${VERSION:-0.0.0}"
+# Monotonic integer for update checks; a rebuild of the same commit keeps its number.
+BUILD="${PISTATUS_BUILD:-$(git rev-list --count HEAD 2>/dev/null || echo 0)}"
 
 # Cleanup intermediate files on exit
 ICON_TOOL=""
@@ -30,7 +34,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>Pi Status Bar</string>
   <key>CFBundleIdentifier</key><string>com.local.pistatusbar</string>
   <key>CFBundleExecutable</key><string>PiStatusBar</string>
-  <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$BUILD</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>

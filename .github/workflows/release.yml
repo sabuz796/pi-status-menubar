@@ -1,0 +1,34 @@
+name: Release
+
+# Building the DMG on a Mac runner and publishing it as a prerelease. A tag is
+# the only thing that ships: the CI workflow already guards every push.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git describe and rev-list need the history
+
+      - name: Build DMG
+        run: |
+          export PISTATUS_VERSION="${GITHUB_REF_NAME#v}"
+          ./build.sh --dmg
+          mv build/PiStatusBar.dmg "build/PiStatusBar-${PISTATUS_VERSION}.dmg"
+          cd build
+          shasum -a 256 "PiStatusBar-${PISTATUS_VERSION}.dmg" > "PiStatusBar-${PISTATUS_VERSION}.dmg.sha256"
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          gh release create "v$V" --prerelease --generate-notes --title "$V" --clobber \
+            "build/PiStatusBar-$V.dmg" "build/PiStatusBar-$V.dmg.sha256"

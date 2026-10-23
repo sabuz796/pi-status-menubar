@@ -185,3 +185,12 @@ suites.
 
 **House rules.** `AGENTS.md` describes how work is done in this repo. `docs/superpowers/` holds the
 design decisions behind the panel and the popover.
+
+## Contributing
+
+Issues and pull requests are welcome. CI runs the Swift type check and the test programs in
+`tests/`; run them the way `.github/workflows/ci.yml` does before opening a PR.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
