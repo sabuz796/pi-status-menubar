@@ -7,7 +7,7 @@ extension StatusController {
     @objc func togglePanel() {
         guard let button = statusItem.button else { return }
         if let shown = panelPopover, shown.isShown {
-            shown.performClose(nil)
+            closePanel()
             return
         }
         // The panel does not take the keyboard: activating the app here would
@@ -25,12 +25,44 @@ extension StatusController {
         p.contentViewController = menuPanel
         p.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         panelPopover = p
+        startOutsideClickMonitor()
     }
 
     var panelIsOpen: Bool { panelPopover?.isShown == true }
 
     func closePanel() {
+        stopOutsideClickMonitor()
         panelPopover?.performClose(nil)
+    }
+
+    // The status item's frame in screen coordinates, so a click on the π reads
+    // as a toggle and not as an outside click.
+    private var statusButtonFrame: NSRect {
+        guard let b = statusItem.button, let w = b.window else { return .zero }
+        return w.convertToScreen(b.convert(b.bounds, to: nil))
+    }
+
+    // A transient popover normally closes on an outside click, but this panel is
+    // never key and the app is never active, so AppKit does not see those clicks
+    // and the panel stayed up. A global monitor does see them.
+    func startOutsideClickMonitor() {
+        guard outsideClickMonitor == nil else { return }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            guard let self else { return }
+            guard let p = self.panelPopover, p.isShown else { self.stopOutsideClickMonitor(); return }
+            let click = NSEvent.mouseLocation
+            if p.contentViewController?.view.window?.frame.contains(click) != true,
+               !self.statusButtonFrame.contains(click) {
+                self.closePanel()
+            }
+        }
+    }
+
+    func stopOutsideClickMonitor() {
+        if let m = outsideClickMonitor {
+            NSEvent.removeMonitor(m)
+            outsideClickMonitor = nil
+        }
     }
 
     func panelSessions() -> [MenuPanelViewController.SessionRow] {
@@ -113,5 +145,6 @@ extension StatusController {
 
     func teardown() {
         stopKeyMonitor()
+        stopOutsideClickMonitor()
     }
 }

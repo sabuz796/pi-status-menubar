@@ -69,7 +69,7 @@ final class DashboardViewController: NSViewController {
     private let metricLabel = NSTextField(labelWithString: "")
     private let updated = NSTextField(labelWithString: "")
     private let rangeControl = NSSegmentedControl()
-    private let refreshButton = NSButton()
+    private let refreshButton = PanelButton()
     private let refreshSpinner = NSProgressIndicator()
     private let tabs = DashboardTabsViewController()
     private var tabControllers: [DashboardTabController] = []

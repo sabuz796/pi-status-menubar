@@ -8,8 +8,16 @@ import Cocoa
 // Full-row hover highlight shared by every panel row.
 final class PanelHoverRow: NSView {
     var isHovered = false {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            hoverChanged?(isHovered)
+        }
     }
+
+    // The row hands this to whoever built it, so the text can flip to white
+    // the way a native menu does. A black label on the accent fill reads as
+    // "not selected".
+    var hoverChanged: ((Bool) -> Void)?
 
     // VoiceOver presses the row itself, so the row carries the action.
     var activate: (() -> Void)?
@@ -24,8 +32,11 @@ final class PanelHoverRow: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if trackingAreas.isEmpty {
+            // activeAlways, not activeInKeyWindow: the panel is deliberately
+            // not key until the user clicks inside it, so key-window tracking
+            // left the first hover unhighlighted.
             addTrackingArea(NSTrackingArea(rect: bounds,
-                options: [.mouseEnteredAndExited, .activeInKeyWindow],
+                options: [.mouseEnteredAndExited, .activeAlways],
                 owner: self, userInfo: nil))
         }
     }
@@ -36,27 +47,60 @@ final class PanelHoverRow: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard isHovered else { return }
         NSColor.controlAccentColor.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 1), xRadius: 5, yRadius: 5).fill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 6, dy: 1), xRadius: 8, yRadius: 8).fill()
     }
+}
+
+// The panel is not key until something inside it is clicked, so AppKit spends
+// the first click on activating the app and the row never runs its action.
+// That is why Dashboard… and the toggles took two clicks.
+final class PanelButton: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 // A row's clickable label is a real borderless button: AppKit then gives it
 // the right accessibility name and value, which a plain text field does not.
 // The checkmark is a separate element so it stays out of the spoken name.
+private let rowFont = NSFont.menuFont(ofSize: 13)
+private let rowDetailFont = NSFont.systemFont(ofSize: 11)
+// Shared row grid: text starts at the same x on every row, so the check,
+// symbol, and label columns line up down the whole panel.
+private let contentInset: CGFloat = 14
+private let rowHeight: CGFloat = 30
+private let iconColumn: CGFloat = 22
+
+// Row text, tinted for the current hover state in one place.
+private func rowText(_ text: String, font: NSFont, base: NSColor, hovered: Bool) -> NSAttributedString {
+    NSAttributedString(string: text, attributes: [
+        .font: font,
+        .foregroundColor: hovered ? NSColor.selectedMenuItemTextColor : base,
+    ])
+}
+
 private func rowButton(_ title: String, checked: Bool?) -> (mark: NSTextField, button: NSButton) {
-    let mark = NSTextField(labelWithAttributedString: NSAttributedString(
-        string: checked == true ? "✓" : " ",
-        attributes: [.font: NSFont.menuFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
+    let mark = NSTextField(labelWithAttributedString: rowText(
+        checked == true ? "✓" : " ", font: rowFont, base: .labelColor, hovered: false))
     mark.translatesAutoresizingMaskIntoConstraints = false
-    mark.widthAnchor.constraint(equalToConstant: 12).isActive = true
-    let b = NSButton()
+    mark.widthAnchor.constraint(equalToConstant: 14).isActive = true
+    let b = PanelButton()
     b.isBordered = false
-    b.attributedTitle = NSAttributedString(
-        string: title,
-        attributes: [.font: NSFont.menuFont(ofSize: 13), .foregroundColor: NSColor.labelColor])
+    b.attributedTitle = rowText(title, font: rowFont, base: .labelColor, hovered: false)
     (b.cell as? NSButtonCell)?.alignment = .left
     b.setAccessibilityLabel(title)
     return (mark, b)
+}
+
+// Leading symbol column. Template images take the tint, so one view goes grey
+// to white with the rest of the row when the row is hovered.
+private func rowIcon(_ symbol: String) -> NSImageView {
+    let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+        .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
+    let view = NSImageView(image: image ?? NSImage())
+    view.translatesAutoresizingMaskIntoConstraints = false
+    view.imageScaling = .scaleProportionallyDown
+    view.contentTintColor = .secondaryLabelColor
+    view.widthAnchor.constraint(equalToConstant: iconColumn).isActive = true
+    return view
 }
 
 // The panel's own background. Painting it solid is what keeps the system
@@ -65,6 +109,16 @@ final class PanelBackgroundView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.windowBackgroundColor.setFill()
         dirtyRect.fill()
+    }
+}
+
+// Painted rather than a layer color: a CGColor copied from separatorColor
+// freezes the appearance it was created in, so a light/dark switch would
+// leave the hairline the wrong shade.
+final class SeparatorView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.separatorColor.setFill()
+        bounds.fill()
     }
 }
 
@@ -80,10 +134,14 @@ final class MenuPanelViewController: NSViewController {
     var previewed: (Int) -> Void = { _ in }
     var sessionOpened: (String, String) -> Void = { _, _ in }
     var dashboardRequested: () -> Void = {}
+    var reportRequested: () -> Void = {}
     var quitRequested: () -> Void = {}
 
     // Session status labels that tick() keeps current while the panel is open.
-    private var sessionLabels: [String: (state: NSTextField, dot: NSTextField, name: NSButton)] = [:]
+    private var sessionLabels: [String: (state: NSTextField, dot: NSTextField, name: NSButton,
+                                        row: PanelHoverRow)] = [:]
+    // Rebuilt with the rows, so an action can never outlive the row that owns it.
+    private var actionHandlers: [String: () -> Void] = [:]
     private let stack = NSStackView()
 
     override func loadView() {
@@ -106,6 +164,7 @@ final class MenuPanelViewController: NSViewController {
     func rebuild() {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         sessionLabels.removeAll()
+        actionHandlers.removeAll()
         let r = rows()
 
         if !r.sessions.isEmpty {
@@ -114,25 +173,32 @@ final class MenuPanelViewController: NSViewController {
             stack.addArrangedSubview(divider())
         }
         heading("View")
-        toggleRow("Show Timer", key: "showTimer", checked: r.showTimer)
-        toggleRow("Show Text", key: "showLabel", checked: r.showText)
+        toggleRow("Show Timer", symbol: "clock", key: "showTimer", checked: r.showTimer)
+        toggleRow("Show Text", symbol: "doc.text", key: "showLabel", checked: r.showText)
         stack.addArrangedSubview(divider())
         heading("Sounds")
-        soundRow("Permission Sound", key: "permissionSound", enabled: r.permission, tag: 0)
-        soundRow("Finish Sound", key: "doneSound", enabled: r.finish, tag: 1)
+        soundRow("Permission Sound", symbol: "speaker.wave.2", key: "permissionSound",
+                 enabled: r.permission, tag: 0)
+        soundRow("Finish Sound", symbol: "music.note", key: "doneSound",
+                 enabled: r.finish, tag: 1)
         stack.addArrangedSubview(divider())
         // No key hints: the panel does not take the keyboard, so ⌘D here would
         // reach the user's app instead. A shortcut that only works once the
         // user has clicked in is not worth advertising.
-        actionRow("Dashboard…", requested: { [weak self] in self?.dashboardRequested() })
+        actionRow("Dashboard…", symbol: "square.grid.2x2", identifier: "dashboard",
+                  requested: { [weak self] in self?.dashboardRequested() })
         stack.addArrangedSubview(divider())
-        actionRow("Quit", requested: { [weak self] in self?.quitRequested() })
+        actionRow("Report a Bug", symbol: "ladybug", identifier: "bug",
+                  requested: { [weak self] in self?.reportRequested() })
+        stack.addArrangedSubview(divider())
+        actionRow("Quit", symbol: "rectangle.portrait.and.arrow.right", identifier: "quit",
+                  requested: { [weak self] in self?.quitRequested() })
         stack.addArrangedSubview(divider())
         stack.addArrangedSubview(NSView())
 
         // Rows are pinned to the stack's width; NSPopover sizes its frame
         // to preferredContentSize.
-        preferredContentSize = NSSize(width: 300, height: stack.fittingSize.height + 14)
+        preferredContentSize = NSSize(width: 320, height: stack.fittingSize.height + 14)
     }
 
     // The state text and the dot color move together: a dot that still reads
@@ -140,7 +206,10 @@ final class MenuPanelViewController: NSViewController {
     func refreshSessions(_ sessions: [SessionRow]) {
         for s in sessions {
             guard let labels = sessionLabels[s.id] else { continue }
-            labels.state.stringValue = s.state
+            // A tick must keep the hover tint, or the text snaps back to grey
+            // under the mouse.
+            labels.state.attributedStringValue = rowText(
+                s.state, font: rowDetailFont, base: .secondaryLabelColor, hovered: labels.row.isHovered)
             labels.dot.attributedStringValue = NSAttributedString(
                 string: s.glyph,
                 attributes: [.font: NSFont.menuFont(ofSize: 13), .foregroundColor: s.glyphColor])
@@ -161,7 +230,7 @@ final class MenuPanelViewController: NSViewController {
         holder.addSubview(label)
         NSLayoutConstraint.activate([
             holder.heightAnchor.constraint(equalToConstant: 26),
-            label.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: 22),
+            label.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: 16),
             label.bottomAnchor.constraint(equalTo: holder.bottomAnchor, constant: 2),
         ])
         stack.addArrangedSubview(holder)
@@ -169,39 +238,46 @@ final class MenuPanelViewController: NSViewController {
 
     private func divider() -> NSView {
         let holder = NSView()
-        let line = NSView()
+        let line = SeparatorView()
         line.translatesAutoresizingMaskIntoConstraints = false
-        line.wantsLayer = true
-        line.layer?.backgroundColor = NSColor.separatorColor.cgColor
         holder.addSubview(line)
         NSLayoutConstraint.activate([
-            line.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: 14),
-            line.trailingAnchor.constraint(equalTo: holder.trailingAnchor, constant: -14),
+            line.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: 6),
+            line.trailingAnchor.constraint(equalTo: holder.trailingAnchor, constant: -6),
             line.topAnchor.constraint(equalTo: holder.topAnchor),
+            line.heightAnchor.constraint(equalToConstant: 1),
             holder.heightAnchor.constraint(equalToConstant: 9),
         ])
         return holder
     }
 
-    private func toggleRow(_ title: String, key: String, checked: Bool) {
+    private func toggleRow(_ title: String, symbol: String, key: String, checked: Bool) {
         let row = PanelHoverRow()
         row.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)")
         let (mark, label) = rowButton(title, checked: checked)
+        let icon = rowIcon(symbol)
         label.target = self
         label.action = #selector(toggleRowPressed(_:))
         label.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)")
         label.setAccessibilityValue(checked ? "on" : "off")
-        addRowToStack(row, leading: [mark, label], trailing: nil)
+        row.hoverChanged = { hovered in
+            mark.attributedStringValue = rowText(checked ? "✓" : " ", font: rowFont,
+                                                 base: .labelColor, hovered: hovered)
+            label.attributedTitle = rowText(title, font: rowFont, base: .labelColor, hovered: hovered)
+            icon.contentTintColor = hovered ? .selectedMenuItemTextColor : .secondaryLabelColor
+        }
+        addRowToStack(row, leading: [mark, icon, label], trailing: nil)
     }
 
-    private func soundRow(_ title: String, key: String, enabled: Bool, tag: Int) {
+    private func soundRow(_ title: String, symbol: String, key: String, enabled: Bool, tag: Int) {
         let row = PanelHoverRow()
         let (mark, label) = rowButton(title, checked: enabled)
+        let icon = rowIcon(symbol)
         label.target = self
         label.action = #selector(toggleRowPressed(_:))
         label.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)")
         label.setAccessibilityValue(enabled ? "on" : "off")
-        let play = NSButton()
+        let play = PanelButton()
         play.isBordered = false
         play.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play test sound")
         play.contentTintColor = .labelColor
@@ -210,7 +286,14 @@ final class MenuPanelViewController: NSViewController {
         play.action = #selector(playPressed(_:))
         play.tag = tag
         play.setAccessibilityLabel("Play \(title)")
-        addRowToStack(row, leading: [mark, label], trailing: play)
+        row.hoverChanged = { hovered in
+            mark.attributedStringValue = rowText(enabled ? "✓" : " ", font: rowFont,
+                                                 base: .labelColor, hovered: hovered)
+            label.attributedTitle = rowText(title, font: rowFont, base: .labelColor, hovered: hovered)
+            play.contentTintColor = hovered ? .selectedMenuItemTextColor : .labelColor
+            icon.contentTintColor = hovered ? .selectedMenuItemTextColor : .secondaryLabelColor
+        }
+        addRowToStack(row, leading: [mark, icon, label], trailing: play)
     }
 
     private func sessionRow(_ s: SessionRow) {
@@ -221,6 +304,7 @@ final class MenuPanelViewController: NSViewController {
             .font: NSFont.menuFont(ofSize: 13), .foregroundColor: s.glyphColor,
         ]))
         dot.translatesAutoresizingMaskIntoConstraints = false
+        dot.widthAnchor.constraint(equalToConstant: 14).isActive = true
         let name = rowButton(s.name, checked: nil).button
         name.translatesAutoresizingMaskIntoConstraints = false
         name.target = self
@@ -232,7 +316,12 @@ final class MenuPanelViewController: NSViewController {
             attributes: [.font: NSFont.systemFont(ofSize: 11),
                          .foregroundColor: NSColor.secondaryLabelColor]))
         state.translatesAutoresizingMaskIntoConstraints = false
-        sessionLabels[s.id] = (state, dot, name)
+        sessionLabels[s.id] = (state, dot, name, row)
+        row.hoverChanged = { hovered in
+            name.attributedTitle = rowText(s.name, font: rowFont, base: .labelColor, hovered: hovered)
+            state.attributedStringValue = rowText(s.state, font: rowDetailFont,
+                                                  base: .secondaryLabelColor, hovered: hovered)
+        }
 
         let top = NSStackView(views: [dot, name])
         top.orientation = .horizontal
@@ -247,20 +336,27 @@ final class MenuPanelViewController: NSViewController {
         row.addSubview(inner)
         NSLayoutConstraint.activate([
             row.heightAnchor.constraint(equalToConstant: 34),
-            inner.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 22),
+            inner.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: contentInset),
             inner.centerYAnchor.constraint(equalTo: row.centerYAnchor),
         ])
         stack.addArrangedSubview(row)
         row.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: 0).isActive = true
     }
-    private func actionRow(_ title: String, requested: @escaping () -> Void) {
+    private func actionRow(_ title: String, symbol: String, identifier: String,
+                           requested: @escaping () -> Void) {
         let row = PanelHoverRow()
-        row.identifier = NSUserInterfaceItemIdentifier("action|\(title)")
-        let label = rowButton(title, checked: nil).button
+        row.identifier = NSUserInterfaceItemIdentifier("action|\(identifier)")
+        let (mark, label) = rowButton(title, checked: nil)
+        let icon = rowIcon(symbol)
         label.target = self
         label.action = #selector(actionRowPressed(_:))
-        label.identifier = NSUserInterfaceItemIdentifier("action|\(title)")
-        addRowToStack(row, leading: [label], trailing: nil)
+        label.identifier = NSUserInterfaceItemIdentifier("action|\(identifier)")
+        actionHandlers[identifier] = requested
+        row.hoverChanged = { hovered in
+            label.attributedTitle = rowText(title, font: rowFont, base: .labelColor, hovered: hovered)
+            icon.contentTintColor = hovered ? .selectedMenuItemTextColor : .secondaryLabelColor
+        }
+        addRowToStack(row, leading: [mark, icon, label], trailing: nil)
     }
 
     // Single-line row: label on the leading side, optional right-aligned
@@ -274,15 +370,15 @@ final class MenuPanelViewController: NSViewController {
         lead.translatesAutoresizingMaskIntoConstraints = false
         row.addSubview(lead)
         NSLayoutConstraint.activate([
-            row.heightAnchor.constraint(equalToConstant: 22),
-            lead.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 22),
+            row.heightAnchor.constraint(equalToConstant: rowHeight),
+            lead.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: contentInset),
             lead.centerYAnchor.constraint(equalTo: row.centerYAnchor),
         ])
         if let trailing = trailing {
             trailing.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(trailing)
             NSLayoutConstraint.activate([
-                trailing.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -18),
+                trailing.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16),
                 trailing.centerYAnchor.constraint(equalTo: row.centerYAnchor),
             ])
         }
@@ -311,8 +407,7 @@ final class MenuPanelViewController: NSViewController {
 
     @objc private func actionRowPressed(_ sender: NSButton) {
         guard let id = sender.identifier?.rawValue.components(separatedBy: "|").last else { return }
-        if id.hasPrefix("Dashboard") { dashboardRequested(); return }
-        if id == "Quit" { quitRequested() }
+        actionHandlers[id]?()
     }
 
     @objc private func playPressed(_ sender: NSButton) {

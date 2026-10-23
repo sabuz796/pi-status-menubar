@@ -166,6 +166,8 @@ final class StatusController: NSObject {
     var fileMTimes: [String: Date] = [:]
     var panelPopover: NSPopover?
     var keyMonitor: Any?
+    // Global mouse monitor that dismisses the panel on an outside click.
+    var outsideClickMonitor: Any?
     var appearanceObservation: NSKeyValueObservation?
     private(set) lazy var menuPanel: MenuPanelViewController = {
         let vc = MenuPanelViewController()
@@ -180,6 +182,10 @@ final class StatusController: NSObject {
         }
         vc.sessionOpened = { [weak self] id, app in self?.openSession(id: id, app: app) }
         vc.dashboardRequested = { [weak self] in self?.swapToDashboard() }
+        vc.reportRequested = {
+            guard let url = URL(string: issuesURL) else { return }
+            NSWorkspace.shared.open(url)
+        }
         vc.quitRequested = { [weak self] in self?.quit() }
         return vc
     }()
@@ -453,6 +459,10 @@ final class StatusController: NSObject {
     func showDashboardPopover() {
         guard let button = statusItem.button else { return }
         if dashboardPopover == nil { dashboardPopover = DashboardPopoverController(store: dashboard) }
+        // The Dashboard is built from system controls (tab bar, segmented control)
+        // that cannot accept a first mouse themselves, so activating the app is
+        // what makes one click enough. It also lets .transient dismiss the popover.
+        if #available(macOS 14.0, *) { NSApp.activate() } else { NSApp.activate(ignoringOtherApps: true) }
         dashboardPopover?.show(relativeTo: button)
     }
 

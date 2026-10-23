@@ -16,6 +16,8 @@ let appPidPath = (stateRootDir as NSString).appendingPathComponent("app.pid")
 let quitIntentPath = (stateRootDir as NSString).appendingPathComponent("quit-intent")
 let sessionRootDir = (NSHomeDirectory() as NSString).appendingPathComponent(".pi/agent/sessions")
 let dashboardCachePath = (stateRootDir as NSString).appendingPathComponent("dashboard-cache.json")
+// Where the panel's bug button sends a report.
+let issuesURL = "https://github.com/sabuz796/pi-status-menubar/issues/new"
 
 if CommandLine.arguments.contains("--selfcheck") {
     // A fresh cache path keeps the check a true cold scan and leaves the real one alone.
