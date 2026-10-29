@@ -1,0 +1,2 @@
+{"type":"session","timestamp":"2026-01-03T03:04:05.000Z","cwd":"/tmp/other"}
+{"type":"message","timestamp":"2026-01-03T03:04:06.000Z","message":{"role":"assistant","model":"test-model","usage":{"input":200,"output":60,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":260,"cost":{"input":0.002,"output":0.003,"cacheRead":0,"cacheWrite":0,"total":0.005}},"content":[{"type":"toolCall","name":"write","arguments":{"path":"docs/readme.md","content":"a\nb\nc"}}]}}

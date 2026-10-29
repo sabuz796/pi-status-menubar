@@ -2,20 +2,6 @@ import Cocoa
 
 // A mark per row, chosen to mean something. Language and tool glyphs come from
 // the row's own name, so a new language or tool still gets a sensible icon.
-private func languageSymbol(_ name: String) -> String {
-    switch name {
-    case "TypeScript", "JavaScript", "JSON": return "curlybraces"
-    case "Python", "Swift", "HTML", "C", "C++", "Rust", "Go", "Java", "Ruby":
-        return "chevron.left.forwardslash.chevron.right"
-    case "Markdown": return "doc.text"
-    case "CSS": return "paintbrush"
-    case "Shell": return "terminal"
-    case "SQL": return "cylinder"
-    case "Text": return "doc.plaintext"
-    case "YAML", "TOML", "XML": return "list.bullet.rectangle"
-    default: return "doc"
-    }
-}
 
 private func toolSymbol(_ name: String) -> String {
     switch name {
@@ -106,7 +92,7 @@ final class OverviewTabController: DashboardTabController {
         if let top = snapshot.topLanguage {
             content.append(SectionHeaderView("Top language"))
             content.append(RankedListView(rows: [RankedRow(top.name, Format.count(top.lines), Double(top.lines),
-                                                            symbol: languageSymbol(top.name),
+                                                            symbol: LanguageMarks.symbol(for: top.name),
                                                             mark: LanguageMarks.mark(for: top.name))]))
         }
         setContent(content)
@@ -129,7 +115,7 @@ final class LanguagesTabController: DashboardTabController {
             SectionHeaderView("Lines by language"),
             RankedListView(rows: snapshot.languages.map {
                 RankedRow($0.name, Format.count($0.lines), Double($0.lines),
-                          symbol: languageSymbol($0.name), mark: LanguageMarks.mark(for: $0.name))
+                          symbol: LanguageMarks.symbol(for: $0.name), mark: LanguageMarks.mark(for: $0.name))
             }),
         ])
     }

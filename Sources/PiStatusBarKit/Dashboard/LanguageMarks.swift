@@ -14,36 +14,42 @@ enum LanguageMarks {
         let color: NSColor
     }
 
-    // Anything missing here falls back to the caller's SF Symbol, so an unknown
-    // language still gets a sensible icon.
-    private static let assetFor: [String: String] = [
-        "typescript": "typescript",
-        "javascript": "javascript",
-        "python": "python",
-        "swift": "swift",
-        "markdown": "markdown",
-        "json": "json",
-        "css": "css",
-        "yaml": "yaml",
-        "shell": "shell",
-        "html": "html",
-        "toml": "toml",
-        "ruby": "ruby",
-        "rust": "rust",
-        "go": "go",
-        "c": "c",
-        "c++": "cpp",
-        "java": "java",
-        "xml": "xml",
+    // One table per language: its bundled vector mark if there is one, and
+    // the SF Symbol every caller falls back to. Keys are lowercased language
+    // names as languageName(forExtension:) produces them. Anything missing
+    // gets the generic "doc".
+    private static let iconFor: [String: (asset: String, symbol: String)] = [
+        "typescript": ("typescript", "curlybraces"),
+        "javascript": ("javascript", "curlybraces"),
+        "json": ("json", "curlybraces"),
+        "markdown": ("markdown", "doc.text"),
+        "css": ("css", "paintbrush"),
+        "shell": ("shell", "terminal"),
+        "yaml": ("yaml", "list.bullet.rectangle"),
+        "toml": ("toml", "list.bullet.rectangle"),
+        "xml": ("xml", "list.bullet.rectangle"),
+        "python": ("python", "chevron.left.forwardslash.chevron.right"),
+        "swift": ("swift", "chevron.left.forwardslash.chevron.right"),
+        "html": ("html", "chevron.left.forwardslash.chevron.right"),
+        "c": ("c", "chevron.left.forwardslash.chevron.right"),
+        "c++": ("cpp", "chevron.left.forwardslash.chevron.right"),
+        "rust": ("rust", "chevron.left.forwardslash.chevron.right"),
+        "go": ("go", "chevron.left.forwardslash.chevron.right"),
+        "java": ("java", "chevron.left.forwardslash.chevron.right"),
+        "ruby": ("ruby", "chevron.left.forwardslash.chevron.right"),
+        "sql": (asset: "sql", symbol: "cylinder"),
+        "text": (asset: "text", symbol: "doc.plaintext"),
     ]
 
     private static var loadCache: [String: Mark] = [:]
     private static var tintCache: [String: NSImage] = [:]
 
-    static func assetName(for language: String) -> String? { assetFor[language.lowercased()] }
+    static func symbol(for language: String) -> String {
+        iconFor[language.lowercased()]?.symbol ?? "doc"
+    }
 
     static func mark(for language: String) -> Mark? {
-        guard let asset = assetFor[language.lowercased()] else { return nil }
+        guard let asset = iconFor[language.lowercased()]?.asset else { return nil }
         if let cached = loadCache[asset] { return cached }
         guard let url = assetURL(asset),
               let image = NSImage(contentsOf: url) else { return nil }

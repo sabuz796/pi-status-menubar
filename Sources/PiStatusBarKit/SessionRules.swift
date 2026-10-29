@@ -4,7 +4,7 @@ import Darwin
 // The state files the Pi extension writes, and the rules for what they
 // mean: which state wins, when a file went stale, and whether the Pi
 // process behind it is still alive. No AppKit here on purpose - the rules
-// are checkable on their own (tests/sessionrules).
+// are checkable on their own (swift test, SessionRulesTests).
 
 // One session's state file, as the extension wrote it.
 struct Session {
@@ -15,6 +15,9 @@ struct Session {
     var cwd: String
     var sessionName: String
     var termProgram: String
+    var terminalApp: String
+    var terminalWindowId: String
+    var terminalWorkspaceId: String
     var pid: Int32
     var started: Bool
     var startedAt: Double
@@ -29,10 +32,29 @@ struct Session {
         self.cwd = o["cwd"] as? String ?? ""
         self.sessionName = o["sessionName"] as? String ?? ""
         self.termProgram = o["term_program"] as? String ?? ""
+        self.terminalApp = o["terminalApp"] as? String ?? ""
+        self.terminalWindowId = o["terminalWindowId"] as? String ?? ""
+        self.terminalWorkspaceId = o["terminalWorkspaceId"] as? String ?? ""
         self.pid = Int32(truncatingIfNeeded: (o["pid"] as? NSNumber)?.intValue ?? 0)
         self.started = o["started"] as? Bool ?? true
         self.startedAt = (o["startedAt"] as? NSNumber)?.doubleValue ?? 0
         self.ts = (o["ts"] as? NSNumber)?.doubleValue ?? 0
+    }
+}
+
+// TERM_PROGRAM values do not match the .app names `open -a` resolves, so the
+// ones that need it are translated here, shared by the panel tooltip and the
+// click fallback. Anything else passes to `open -a` unchanged (that lookup is
+// case-insensitive); nil means no terminal to name, so the row has no target.
+func terminalAppName(_ termProgram: String) -> String? {
+    switch termProgram {
+    case "": return nil
+    case "Apple_Terminal": return "Terminal"
+    case "iTerm.app": return "iTerm"
+    case "WarpTerminal": return "Warp"
+    case "vscode": return "Visual Studio Code"
+    case "ghostty": return "Ghostty"
+    default: return termProgram
     }
 }
 
@@ -100,7 +122,7 @@ enum SessionRules {
     // The state files the extension wrote.
     static func stateFileNames(stateDir: String) -> [String] {
         guard let files = try? FileManager.default.contentsOfDirectory(atPath: stateDir) else {
-            NSLog("PiStatusBar: cannot read state directory")
+            logEvent(level: "warn", source: "app", event: "state-dir-unreadable")
             return []
         }
         return files.filter { $0.hasSuffix(".json") }
@@ -125,11 +147,11 @@ enum SessionRules {
             if mtimes[f] == m { continue }
             mtimes[f] = m
             guard let data = fm.contents(atPath: full) else {
-                NSLog("PiStatusBar: cannot read state file \(f)")
+                logEvent(level: "warn", source: "app", event: "state-file-unreadable", ["file": f])
                 continue
             }
             guard let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                NSLog("PiStatusBar: cannot parse state file \(f)")
+                logEvent(level: "warn", source: "app", event: "state-file-unparsed", ["file": f])
                 continue
             }
             let id = (f as NSString).deletingPathExtension

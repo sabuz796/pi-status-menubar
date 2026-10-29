@@ -1,13 +1,5 @@
 import Foundation
 
-private let dayKeyFormatter: DateFormatter = {
-    let f = DateFormatter()
-    f.dateFormat = "yyyy-MM-dd"
-    f.locale = Locale(identifier: "en_US_POSIX")
-    f.timeZone = TimeZone.current
-    return f
-}()
-
 private struct Accumulator {
     var tokens = 0
     var cost = 0.0
@@ -18,7 +10,7 @@ private struct Accumulator {
 func cutoffDay(for range: StatsRange, now: Date = Date()) -> String? {
     guard let window = range.window else { return nil }
     guard let start = Calendar.current.date(byAdding: .day, value: -(window - 1), to: now) else { return nil }
-    return dayKeyFormatter.string(from: start)
+    return DayKey.key(start)
 }
 
 // A snapshot is always re-derived by summing whole day buckets. Changing the
@@ -134,23 +126,23 @@ func buildSnapshot(_ contributions: [FileContribution], range: StatsRange,
 // Ascending, gaps filled with zero. A bounded range shows the whole window, so
 // the chart keeps one row per day even when a day was idle.
 private func series(_ days: [String: Accumulator], cutoff: String?, now: Date) -> [DayUsage] {
-    let keys = days.keys.sorted()
+    let keys = days.keys.filter { !$0.isEmpty }.sorted()
     let firstKey: String
     let lastKey: String
     if let cutoff = cutoff {
         firstKey = cutoff
-        lastKey = max(keys.last ?? cutoff, dayKeyFormatter.string(from: now))
+        lastKey = max(keys.last ?? cutoff, DayKey.key(now))
     } else {
         guard let first = keys.first, let last = keys.last else { return [] }
         firstKey = first
         lastKey = last
     }
-    guard let start = dayKeyFormatter.date(from: firstKey),
-          let end = dayKeyFormatter.date(from: lastKey) else { return [] }
+    guard let start = DayKey.date(firstKey),
+          let end = DayKey.date(lastKey) else { return [] }
     var result: [DayUsage] = []
     var cursor = start
     while cursor <= end {
-        let key = dayKeyFormatter.string(from: cursor)
+        let key = DayKey.key(cursor)
         let entry = days[key] ?? Accumulator()
         result.append(DayUsage(day: key, tokens: entry.tokens, cost: entry.cost))
         guard let next = Calendar.current.date(byAdding: .day, value: 1, to: cursor) else { break }

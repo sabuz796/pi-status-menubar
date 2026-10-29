@@ -1,5 +1,9 @@
 import Cocoa
 
+// Shared serial queue for focusing a multiplexer pane. Module-level because an
+// extension cannot add stored static properties.
+private let focusQueueShared = DispatchQueue(label: "com.local.pistatusbar.focus", qos: .userInitiated)
+
 // Panel mode: everything that opens, closes, feeds, and quits through the
 // π popover panel. Key paths live here too, because the panel is not an
 // NSMenu, so AppKit dispatches no keyboard equivalents for it.
@@ -68,7 +72,8 @@ extension StatusController {
     func panelSessions() -> [MenuPanelViewController.SessionRow] {
         return sessions.values.sorted { $0.ts > $1.ts }.filter { $0.started }.map { s in
             let p = sessionParts(s)
-            return (p.glyph, p.color, p.name, p.sub, s.id, s.termProgram)
+            return (p.glyph, p.color, p.name, p.sub, s.id,
+                    s.terminalApp, s.terminalWindowId, s.terminalWorkspaceId, s.termProgram)
         }
     }
 
@@ -147,4 +152,78 @@ extension StatusController {
         stopKeyMonitor()
         stopOutsideClickMonitor()
     }
+    // Focus the session's terminal. A pane id (cmux, tmux) is exact: it runs
+    // the multiplexer's own focus command for that pane. Without one the only
+    // reachable target is the terminal app itself, raised to the front —
+    // best effort, still far better than a dead row.
+    func focusSession(id: String, app: String, pane: String, workspace: String, termProgram: String) {
+        focusQueue.async {
+            if pane.isEmpty || app.isEmpty {
+                if let name = terminalAppName(termProgram) { _ = Self.runCLI(["open", "-a", name]) }
+                return
+            }
+            var failed = false
+            switch app {
+            case "cmux":
+                var args = ["cmux", "focus-pane", "--pane", pane]
+                if !workspace.isEmpty { args += ["--workspace", workspace] }
+                failed = Self.runCLILogged(args) != 0
+            case "tmux":
+                failed = Self.runCLILogged(["tmux", "select-window", "-t", pane]) != 0
+                if !failed { _ = Self.runCLI(["tmux", "select-pane", "-t", pane]) }
+            default:
+                return
+            }
+            if failed {
+                // A nonzero exit means the pane id is probably stale (pane
+                // closed or moved). The marker names the session, so the Pi
+                // process that owns it re-detects immediately.
+                let marker: [String: Any] = ["sessionId": id,
+                                             "ts": Int(Date().timeIntervalSince1970)]
+                try? JSONSerialization.data(withJSONObject: marker)
+                    .write(to: URL(fileURLWithPath: refreshPanePath))
+            }
+        }
+    }
+
+    // Runs a CLI and logs command + exit, so a silent focus failure in the
+    // field (a GUI PATH, a stale pane id) leaves evidence in log.jsonl.
+    private static func runCLILogged(_ args: [String]) -> Int32 {
+        let status = runCLI(args)
+        logEvent(level: "info", source: "app", event: "focus-cli",
+                 ["cmd": args.joined(separator: " "), "exit": String(status)])
+        return status
+    }
+
+    // Runs the CLI and waits, with the shared 2 s timeout. Returns the exit
+    // status, or -1 when the tool could not be launched or ran too long.
+    private static func runCLI(_ args: [String]) -> Int32 {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = args
+        // A GUI-launched app inherits launchd's minimal PATH (/usr/bin, /bin, …),
+        // so `env cmux` never finds /opt/homebrew/bin/cmux and focus fails
+        // silently. Front-load the standard CLI homes; tools elsewhere on the
+        // user's PATH stay out of reach (rare, self-built binaries).
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
+        p.environment = env
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do {
+            try p.run()
+        } catch {
+            return -1
+        }
+        let sem = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in sem.signal() }
+        if sem.wait(timeout: .now() + 2) == .timedOut {
+            p.terminate()
+            return -1
+        }
+        return p.terminationStatus
+    }
+
+    // Serializes focus calls so rapid clicks do not interleave.
+    private var focusQueue: DispatchQueue { focusQueueShared }
 }

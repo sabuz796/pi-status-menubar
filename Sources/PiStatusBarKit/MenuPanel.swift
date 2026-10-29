@@ -19,26 +19,44 @@ final class PanelHoverRow: NSView {
     // "not selected".
     var hoverChanged: ((Bool) -> Void)?
 
-    // VoiceOver presses the row itself, so the row carries the action.
+    // VoiceOver reaches the row's button, which carries the action. For the
+    // mouse, the row is the target too: the hover highlight covers the whole
+    // row, so a click anywhere on it must do what the highlight promises.
+    // Without this, only the title's own few points reacted and the new icon
+    // column was dead space.
     var activate: (() -> Void)?
 
-    override func accessibilityRole() -> NSAccessibility.Role? { .button }
-    override func accessibilityPerformPress() -> Bool {
-        guard let activate else { return false }
-        activate()
-        return true
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    // Act on release inside the row, like a menu item: pressing Quit and
+    // dragging off must not quit.
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { activate?() }
     }
+
+    // Our own hover tracking area. Not tracked via trackingAreas.isEmpty: a
+    // row.toolTip makes AppKit add its own internal tracking area, so the
+    // session rows (the only rows with a tooltip) always passed "isNotEmpty"
+    // and never got a hover area at all.
+    private var hoverArea: NSTrackingArea?
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if trackingAreas.isEmpty {
-            // activeAlways, not activeInKeyWindow: the panel is deliberately
-            // not key until the user clicks inside it, so key-window tracking
-            // left the first hover unhighlighted.
-            addTrackingArea(NSTrackingArea(rect: bounds,
-                options: [.mouseEnteredAndExited, .activeAlways],
-                owner: self, userInfo: nil))
+        guard hoverChanged != nil else { return }
+        if let area = hoverArea {
+            if area.rect == bounds { return }
+            removeTrackingArea(area)
+            hoverArea = nil
         }
+        // activeAlways, not activeInKeyWindow: the panel is deliberately
+        // not key until the user clicks inside it, so key-window tracking
+        // left the first hover unhighlighted.
+        let area = NSTrackingArea(rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways],
+            owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverArea = area
     }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
@@ -73,9 +91,23 @@ private let iconColumn: CGFloat = 22
 private func rowText(_ text: String, font: NSFont, base: NSColor, hovered: Bool) -> NSAttributedString {
     NSAttributedString(string: text, attributes: [
         .font: font,
-        .foregroundColor: hovered ? NSColor.selectedMenuItemTextColor : base,
+        .foregroundColor: hovered ? hoverInk() : base,
     ])
 }
+
+// The accent fill behind a hovered row can be pale (yellow, mint), where the
+// system's near-white selected text loses contrast. Black or white, whichever
+// contrasts more with the accent the fill actually uses.
+func hoverInk(for accent: NSColor) -> NSColor {
+    guard let a = accent.usingColorSpace(.sRGB) else { return .selectedMenuItemTextColor }
+    let l = 0.2126 * a.redComponent + 0.7152 * a.greenComponent + 0.0722 * a.blueComponent
+    // WCAG relative contrast against white and against black.
+    let againstWhite = 1.05 / (l + 0.05)
+    let againstBlack = (l + 0.05) / 0.05
+    return againstBlack >= againstWhite ? .black : .white
+}
+
+func hoverInk() -> NSColor { hoverInk(for: NSColor.controlAccentColor) }
 
 private func rowButton(_ title: String, checked: Bool?) -> (mark: NSTextField, button: NSButton) {
     let mark = NSTextField(labelWithAttributedString: rowText(
@@ -123,8 +155,9 @@ final class SeparatorView: NSView {
 }
 
 final class MenuPanelViewController: NSViewController {
-    typealias SessionRow = (glyph: String, glyphColor: NSColor, name: String, state: String,
-                            id: String, app: String)
+    typealias SessionRow = (glyph: String, glyphColor: NSColor, name: String, state: String, id: String,
+                            terminalApp: String, terminalWindowId: String, terminalWorkspaceId: String,
+                            termProgram: String)
 
     // Data and actions come from StatusController; the panel owns no state,
     // so every action rebuilds from current truth.
@@ -132,13 +165,13 @@ final class MenuPanelViewController: NSViewController {
                      permission: Bool, finish: Bool) = { ([], false, false, false, false) }
     var toggled: (String) -> Void = { _ in }
     var previewed: (Int) -> Void = { _ in }
-    var sessionOpened: (String, String) -> Void = { _, _ in }
+    var focusSessionRequested: (String, String, String, String, String) -> Void = { _, _, _, _, _ in }
     var dashboardRequested: () -> Void = {}
     var reportRequested: () -> Void = {}
     var quitRequested: () -> Void = {}
 
     // Session status labels that tick() keeps current while the panel is open.
-    private var sessionLabels: [String: (state: NSTextField, dot: NSTextField, name: NSButton,
+    private var sessionLabels: [String: (state: NSTextField, dot: NSTextField, name: NSTextField,
                                         row: PanelHoverRow)] = [:]
     // Rebuilt with the rows, so an action can never outlive the row that owns it.
     private var actionHandlers: [String: () -> Void] = [:]
@@ -204,6 +237,9 @@ final class MenuPanelViewController: NSViewController {
     // The state text and the dot color move together: a dot that still reads
     // "idle" next to the words "Awaiting input" tells the user two things.
     func refreshSessions(_ sessions: [SessionRow]) {
+        // Updating in place cannot add or remove a row, so a session that starts
+        // or closes while the panel is open needs a rebuild.
+        if Set(sessions.map { $0.id }) != Set(sessionLabels.keys) { rebuild(); return }
         for s in sessions {
             guard let labels = sessionLabels[s.id] else { continue }
             // A tick must keep the hover tint, or the text snaps back to grey
@@ -260,11 +296,12 @@ final class MenuPanelViewController: NSViewController {
         label.action = #selector(toggleRowPressed(_:))
         label.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)")
         label.setAccessibilityValue(checked ? "on" : "off")
+        row.activate = { [weak self] in self?.toggleKey(key) }
         row.hoverChanged = { hovered in
             mark.attributedStringValue = rowText(checked ? "✓" : " ", font: rowFont,
                                                  base: .labelColor, hovered: hovered)
             label.attributedTitle = rowText(title, font: rowFont, base: .labelColor, hovered: hovered)
-            icon.contentTintColor = hovered ? .selectedMenuItemTextColor : .secondaryLabelColor
+            icon.contentTintColor = hovered ? hoverInk() : .secondaryLabelColor
         }
         addRowToStack(row, leading: [mark, icon, label], trailing: nil)
     }
@@ -277,6 +314,7 @@ final class MenuPanelViewController: NSViewController {
         label.action = #selector(toggleRowPressed(_:))
         label.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)")
         label.setAccessibilityValue(enabled ? "on" : "off")
+        row.activate = { [weak self] in self?.toggleKey(key) }
         let play = PanelButton()
         play.isBordered = false
         play.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play test sound")
@@ -290,38 +328,51 @@ final class MenuPanelViewController: NSViewController {
             mark.attributedStringValue = rowText(enabled ? "✓" : " ", font: rowFont,
                                                  base: .labelColor, hovered: hovered)
             label.attributedTitle = rowText(title, font: rowFont, base: .labelColor, hovered: hovered)
-            play.contentTintColor = hovered ? .selectedMenuItemTextColor : .labelColor
-            icon.contentTintColor = hovered ? .selectedMenuItemTextColor : .secondaryLabelColor
+            play.contentTintColor = hovered ? hoverInk() : .labelColor
+            icon.contentTintColor = hovered ? hoverInk() : .secondaryLabelColor
         }
         addRowToStack(row, leading: [mark, icon, label], trailing: play)
     }
 
     private func sessionRow(_ s: SessionRow) {
         let row = PanelHoverRow()
-        row.identifier = NSUserInterfaceItemIdentifier("session|\(s.id)|\(s.app)")
+        row.identifier = NSUserInterfaceItemIdentifier("session|\(s.id)")
+        let focusable = !s.terminalWindowId.isEmpty
+        if focusable {
+            row.toolTip = "Focus this session in \(s.terminalApp)"
+        } else if let name = terminalAppName(s.termProgram) {
+            row.toolTip = "Bring \(name) to the front"
+        }
+        row.activate = { [weak self] in self?.focusSessionRequested(s.id,
+                                                                    s.terminalApp,
+                                                                    s.terminalWindowId,
+                                                                    s.terminalWorkspaceId,
+                                                                    s.termProgram) }
 
         let dot = NSTextField(labelWithAttributedString: NSAttributedString(string: s.glyph, attributes: [
             .font: NSFont.menuFont(ofSize: 13), .foregroundColor: s.glyphColor,
         ]))
         dot.translatesAutoresizingMaskIntoConstraints = false
         dot.widthAnchor.constraint(equalToConstant: 14).isActive = true
-        let name = rowButton(s.name, checked: nil).button
+        let name = NSTextField(labelWithAttributedString: rowText(s.name, font: rowFont, base: .labelColor, hovered: false))
         name.translatesAutoresizingMaskIntoConstraints = false
-        name.target = self
-        name.action = #selector(sessionPressed(_:))
-        name.identifier = NSUserInterfaceItemIdentifier("session|\(s.id)|\(s.app)")
         name.setAccessibilityValue(s.state)
         let state = NSTextField(labelWithAttributedString: NSAttributedString(
             string: s.state,
             attributes: [.font: NSFont.systemFont(ofSize: 11),
                          .foregroundColor: NSColor.secondaryLabelColor]))
         state.translatesAutoresizingMaskIntoConstraints = false
-        sessionLabels[s.id] = (state, dot, name, row)
+        // Every session row hovers like the rest of the menu: the click target
+        // differs (exact pane vs. raise the terminal app), never the highlight.
         row.hoverChanged = { hovered in
-            name.attributedTitle = rowText(s.name, font: rowFont, base: .labelColor, hovered: hovered)
+            name.attributedStringValue = rowText(s.name, font: rowFont, base: .labelColor, hovered: hovered)
             state.attributedStringValue = rowText(s.state, font: rowDetailFont,
                                                   base: .secondaryLabelColor, hovered: hovered)
         }
+        sessionLabels[s.id] = (state, dot, name, row)
+        logEvent(level: "info", source: "app", event: "row-built",
+                 ["row": "session|\(s.id)", "focusable": focusable ? "1" : "0",
+                  "pane": s.terminalWindowId, "app": s.terminalApp])
 
         let top = NSStackView(views: [dot, name])
         top.orientation = .horizontal
@@ -352,9 +403,10 @@ final class MenuPanelViewController: NSViewController {
         label.action = #selector(actionRowPressed(_:))
         label.identifier = NSUserInterfaceItemIdentifier("action|\(identifier)")
         actionHandlers[identifier] = requested
+        row.activate = requested
         row.hoverChanged = { hovered in
             label.attributedTitle = rowText(title, font: rowFont, base: .labelColor, hovered: hovered)
-            icon.contentTintColor = hovered ? .selectedMenuItemTextColor : .secondaryLabelColor
+            icon.contentTintColor = hovered ? hoverInk() : .secondaryLabelColor
         }
         addRowToStack(row, leading: [mark, icon, label], trailing: nil)
     }
@@ -397,12 +449,6 @@ final class MenuPanelViewController: NSViewController {
     @objc private func toggleRowPressed(_ sender: NSButton) {
         guard let key = sender.identifier?.rawValue.components(separatedBy: "|").last else { return }
         toggleKey(key)
-    }
-
-    @objc private func sessionPressed(_ sender: NSButton) {
-        guard let id = sender.identifier?.rawValue.components(separatedBy: "|") else { return }
-        guard id.count > 2 else { return }
-        sessionOpened(id[1], id.dropFirst(2).joined(separator: "|"))
     }
 
     @objc private func actionRowPressed(_ sender: NSButton) {

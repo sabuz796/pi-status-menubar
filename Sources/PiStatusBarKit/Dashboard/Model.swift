@@ -102,6 +102,13 @@ struct FileCursor: Codable, Equatable {
     var inode: UInt64
     var offset: Int64
     var size: Int64
+    // When this transcript last changed (nothing written for this long marks
+    // the contribution cold enough to prune). Missing in pre-existing caches;
+    // the loader backfills it from the cache's savedAt date.
+    var lastChanged: Date = .distantPast
+    // The file's modification date at scan time. Same size but a newer date
+    // means the file was rewritten in place, and the content must be re-read.
+    var mtime: Date = .distantPast
 }
 
 struct RankedEntry: Codable, Equatable {
@@ -152,5 +159,25 @@ struct DashboardCache: Codable {
     var savedAt: Date
     var cursors: [String: FileCursor]
     var contributions: [String: FileContribution]
+    // Pruned transcripts, keyed by path. Retired wholesale (not merged into
+    // one blob), so sessions and project rows keep their identity even after
+    // the hot set is capped.
+    var archive: [String: FileContribution] = [:]
     var snapshot: DashboardSnapshot
+}
+
+// The one day key in the app. Rows are stamped with it, ranges are cut by it,
+// and "today" is read from it, so all three must use this formatter or a day
+// lands in a bucket the range filter does not look at.
+enum DayKey {
+    static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone.current
+        return f
+    }()
+
+    static func key(_ date: Date) -> String { formatter.string(from: date) }
+    static func date(_ key: String) -> Date? { formatter.date(from: key) }
 }

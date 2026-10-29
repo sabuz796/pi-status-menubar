@@ -14,16 +14,25 @@ BUILD="${PISTATUS_BUILD:-$(git rev-list --count HEAD 2>/dev/null || echo 0)}"
 
 # Cleanup intermediate files on exit
 ICON_TOOL=""
-cleanup() { rm -f "$APP/Contents/MacOS/PiStatusBar.arm64" "$APP/Contents/MacOS/PiStatusBar.x86_64" ${ICON_TOOL:+"$ICON_TOOL"}; }
+cleanup() { rm -f ${ICON_TOOL:+"$ICON_TOOL"}; }
 trap cleanup EXIT
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 
-echo "Compiling universal binary (arm64 + x86_64)…"
-swiftc -O -target arm64-apple-macos13.0  Sources/*.swift Sources/Dashboard/*.swift -o "$BIN.arm64"  -framework Cocoa
-swiftc -O -target x86_64-apple-macos13.0 Sources/*.swift Sources/Dashboard/*.swift -o "$BIN.x86_64" -framework Cocoa
-lipo -create "$BIN.arm64" "$BIN.x86_64" -output "$BIN"
+echo "Building universal binary (arm64 + x86_64)…"
+# Swift Package Manager builds the same code as `swift test` uses, so the
+# shipped app and the tested library can never drift apart.
+swift build -c release --arch arm64 --arch x86_64
+BIN_SRC=""
+for candidate in .build/out/Products/Release/PiStatusBar .build/apple/Products/Release/PiStatusBar .build/release/PiStatusBar; do
+  if [[ -f "$candidate" ]]; then BIN_SRC="$candidate"; break; fi
+done
+if [[ -z "$BIN_SRC" ]]; then
+  echo "error: SwiftPM did not produce a PiStatusBar binary" >&2
+  exit 1
+fi
+cp "$BIN_SRC" "$BIN"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

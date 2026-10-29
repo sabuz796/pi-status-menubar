@@ -75,7 +75,21 @@ enum Format {
         return value(day.tokens, day.cost, snapshot.metric)
     }
 
-    static var dayKey: String { dayKeyFormatter.string(from: Date()) }
+    static var dayKey: String { DayKey.key(Date()) }
+
+    // Day keys are "2026-10-17"; a chart row reads better as "17-Oct". Month
+    // names stay English on purpose, like the keys themselves.
+    static func shortDay(_ key: String) -> String {
+        DayKey.date(key).map { shortDayFormatter.string(from: $0) } ?? key
+    }
+
+    private static let shortDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "d-MMM"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone.current
+        return f
+    }()
 
     private static let countFormatter: NumberFormatter = {
         let f = NumberFormatter()
@@ -87,15 +101,6 @@ enum Format {
         let f = DateFormatter()
         f.dateStyle = .none
         f.timeStyle = .short
-        return f
-    }()
-
-    // Same setup as Snapshot.swift, so "today" compares against the same keys.
-    private static let dayKeyFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone.current
         return f
     }()
 

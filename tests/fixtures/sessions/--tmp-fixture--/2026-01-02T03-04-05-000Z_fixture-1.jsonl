@@ -1,0 +1,4 @@
+{"type":"session","timestamp":"2026-01-02T03:04:05.000Z","cwd":"/tmp/fixture"}
+{"type":"message","timestamp":"2026-01-02T03:04:06.000Z","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}
+{"type":"message","timestamp":"2026-01-02T03:04:07.000Z","message":{"role":"assistant","model":"test-model","usage":{"input":100,"output":50,"cacheRead":10,"cacheWrite":5,"reasoning":0,"totalTokens":165,"cost":{"input":0.001,"output":0.002,"cacheRead":0,"cacheWrite":0,"total":0.003}},"content":[{"type":"text","text":"ok"},{"type":"toolCall","name":"edit","arguments":{"path":"src/app.ts","edits":[{"newText":"one\ntwo","oldText":"one"}]}}]}}
+{"type":"message","timestamp":"2026-01-02T03:04:08.000Z","message":{"role":"toolResult","content":[{"type":"text","text":"done"}]}}

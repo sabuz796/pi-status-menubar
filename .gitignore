@@ -1,4 +1,7 @@
 node_modules/
 build/
+.build/
 .DS_Store
 .pi/
+.agents/
+docs/

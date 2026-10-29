@@ -6,7 +6,7 @@ final class BarChartView: NSView {
     private let days: [DayUsage]
     private let rowHeight: CGFloat = 22
     private let rowGap: CGFloat = 4
-    private let labelWidth: CGFloat = 46
+    private let labelWidth: CGFloat = 54
     private let valueWidth: CGFloat = 58
 
     init(days: [DayUsage]) {
@@ -29,7 +29,7 @@ final class BarChartView: NSView {
     private var summary: String {
         guard let peak = days.max(by: { $0.tokens < $1.tokens }), peak.tokens > 0 else { return "No usage yet" }
         let active = days.filter { $0.tokens > 0 }.count
-        return "\(active) active days, peak \(Format.tokens(peak.tokens)) on \(peak.day)"
+        return "\(active) active days, peak \(Format.tokens(peak.tokens)) on \(Format.shortDay(peak.day))"
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -41,7 +41,7 @@ final class BarChartView: NSView {
             let y = CGFloat(index) * (rowHeight + rowGap)
             let barHeight = rowHeight - 6
             let barY = y + (rowHeight - barHeight) / 2
-            draw(String(day.day.suffix(5)), in: NSRect(x: 0, y: barY, width: labelWidth, height: barHeight),
+            draw(Format.shortDay(day.day), in: NSRect(x: 0, y: barY, width: labelWidth, height: barHeight),
                  alignment: .left, color: .secondaryLabelColor)
             draw(Format.tokens(day.tokens), in: NSRect(x: bounds.width - valueWidth, y: barY, width: valueWidth, height: barHeight),
                  alignment: .right, color: .labelColor)

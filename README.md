@@ -144,8 +144,8 @@ open "/Applications/Pi Status Bar.app"
 **Run the checks**
 
 ```bash
-swiftc -O Sources/Sounds.swift tests/cues/main.swift -o /tmp/cues && /tmp/cues
-swiftc -O Sources/Sounds.swift Sources/SessionRules.swift tests/sessionrules/main.swift -o /tmp/sessionrules && /tmp/sessionrules
+swift build
+swift test
 node tests/extension.test.mjs
 npx tsc --noEmit
 ```
@@ -156,35 +156,43 @@ npx tsc --noEmit
 "build/Pi Status Bar.app/Contents/MacOS/PiStatusBar" --selfcheck
 ```
 
+`PISTATUS_SESSION_ROOT` points the same check at another folder; CI runs it against
+`tests/fixtures/sessions` so a parser change cannot land untested.
+
 **Where things live**
 
 | Path | What it is |
 |---|---|
-| `Sources/main.swift` | Entry point, shared paths, the dashboard self-check (63 lines) |
-| `Sources/StatusController.swift` | Status item, icon drawing, session polling (500 lines) |
-| `Sources/StatusController+Panel.swift` | Opening and closing the panel, the toggles (117 lines) |
-| `Sources/SessionRules.swift` | The rules for what counts as alive, stale or finished (154 lines) |
-| `Sources/MenuPanel.swift` | The panel's rows and how they are drawn (321 lines) |
-| `Sources/Sounds.swift` | The two notification sounds and when they fire (70 lines) |
-| `Sources/Dashboard/` | The Pi Stats dashboard: scanning, storing and drawing the numbers |
-| `extensions/pi-statusbar.ts` | The Pi extension that writes the session files (398 lines) |
+| `Package.swift` | One package: the library, the executable and the tests |
+| `Sources/PiStatusBar/main.swift` | Entry point. Starts the app from the library |
+| `Sources/PiStatusBarKit/App.swift` | App startup and the dashboard self-check |
+| `Sources/PiStatusBarKit/AppPaths.swift` | The state directory layout the app and the extension share |
+| `Sources/PiStatusBarKit/StatusController.swift` | Status item, icon drawing, session polling |
+| `Sources/PiStatusBarKit/StatusController+Panel.swift` | Opening and closing the panel, the toggles |
+| `Sources/PiStatusBarKit/SessionRules.swift` | The rules for what counts as alive, stale or finished |
+| `Sources/PiStatusBarKit/MenuPanel.swift` | The panel's rows and how they are drawn |
+| `Sources/PiStatusBarKit/Sounds.swift` | The two notification sounds and when they fire |
+| `Sources/PiStatusBarKit/Log.swift` | The JSONL log the app and the extension share |
+| `Sources/PiStatusBarKit/Dashboard/` | The Pi Stats dashboard: scanning, storing and drawing the numbers |
+| `extensions/pi-statusbar.ts` | The Pi extension that writes the session files |
 | `tools/AppIcon/main.swift` | Turns `images/app-icon.svg` into an `.icns` icon |
-| `tests/` | The cue rules, the session rules and the extension state machine |
+| `tests/` | The package tests, the self-check fixtures and the extension state machine |
 | `build.sh` | Builds the app, both chip kinds, plus the icon and an optional DMG |
-| `docs/superpowers/` | The design notes behind the panel |
+| `.github/workflows/` | CI on every push, and the release job that runs on a tag |
+| `LICENSE` | MIT |
 
 **Releasing.** The version in the app comes from the newest git tag, so a release is a tag:
 
 ```bash
-git tag v0.1.0 && git push --tags
+git tag v0.1.0 && git push origin v0.1.0
 ```
 
-The next build then reports that version. `PISTATUS_VERSION=0.1.0 ./build.sh` overrides it by hand.
-CI runs on every push to `main`: it type-checks the Swift and TypeScript and runs all three test
-suites.
+The Release workflow then builds the app, writes a `.dmg` and its SHA-256, and publishes them as a
+GitHub prerelease. `PISTATUS_VERSION=0.1.0 ./build.sh` overrides the version by hand for a local
+build. CI runs on every push to `main`: it type-checks the Swift and TypeScript and runs all three
+test suites.
 
-**House rules.** `AGENTS.md` describes how work is done in this repo. `docs/superpowers/` holds the
-design decisions behind the panel and the popover.
+**House rules.** `AGENTS.md` describes how work is done in this repo.
 
 ## Contributing
 

@@ -12,18 +12,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Swift syntax check
-        run: swiftc -typecheck Sources/*.swift Sources/Dashboard/*.swift -framework Cocoa
+      - name: Swift build
+        run: swift build
 
-      - name: Cue rule tests
-        run: |
-          swiftc -O Sources/Sounds.swift tests/cues/main.swift -o /tmp/cues
-          /tmp/cues
+      - name: Swift tests
+        run: swift test
 
-      - name: Session rule tests
+      - name: Dashboard self-check
         run: |
-          swiftc -O Sources/Sounds.swift Sources/SessionRules.swift tests/sessionrules/main.swift -o /tmp/sessionrules
-          /tmp/sessionrules
+          BIN="$(swift build --show-bin-path)/PiStatusBar"
+          PISTATUS_SESSION_ROOT=tests/fixtures/sessions "$BIN" --selfcheck
 
       - name: Install TypeScript toolchain
         run: npm install --no-audit --no-fund
@@ -40,11 +38,13 @@ jobs:
       - name: Verify required files exist
         run: |
           test -f extensions/pi-statusbar.ts
-          test -f Sources/main.swift
-          test -f Sources/Sounds.swift
-          test -f tests/cues/main.swift
-          test -f Sources/SessionRules.swift
-          test -f tests/sessionrules/main.swift
+          test -f Package.swift
+          test -f Sources/PiStatusBar/main.swift
+          test -f Sources/PiStatusBarKit/App.swift
+          test -f Sources/PiStatusBarKit/SessionRules.swift
+          test -f tests/PiStatusBarKitTests/CuePlayerTests.swift
+          test -f tests/PiStatusBarKitTests/SessionRulesTests.swift
+          test -f tests/extension.test.mjs
           test -f tools/AppIcon/main.swift
           test -f images/app-icon.svg
           test -f images/pi.png

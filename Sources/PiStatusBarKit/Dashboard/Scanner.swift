@@ -46,16 +46,12 @@ private let sessionPrefix = Data("{\"type\":\"session\"".utf8)
 
 final class Scanner {
     let rootDir: String
-    private let dayFormatter = DateFormatter()
     private let isoFractional = ISO8601DateFormatter()
     private let isoPlain = ISO8601DateFormatter()
     private(set) var bytesReadThisPass: Int64 = 0
 
     init(rootDir: String) {
         self.rootDir = rootDir
-        dayFormatter.dateFormat = "yyyy-MM-dd"
-        dayFormatter.locale = Locale(identifier: "en_US_POSIX")
-        dayFormatter.timeZone = TimeZone.current
         isoFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         isoPlain.formatOptions = [.withInternetDateTime]
     }
@@ -71,31 +67,44 @@ final class Scanner {
         return paths.sorted()
     }
 
-    func stat(at path: String) -> (inode: UInt64, size: Int64)? {
+    func stat(at path: String) -> (inode: UInt64, size: Int64, mtime: Date)? {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
         let inode = (attrs[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
         let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
-        return (inode, size)
+        let mtime = (attrs[.modificationDate] as? Date) ?? .distantPast
+        return (inode, size, mtime)
     }
 
-    func decide(cursor: FileCursor?, inode: UInt64, size: Int64) -> ScanDecision {
+    func decide(cursor: FileCursor?, inode: UInt64, size: Int64, mtime: Date) -> ScanDecision {
         guard let cursor = cursor else { return .rescan }
         if cursor.inode != inode { return .rescan }
         if size < cursor.offset { return .rescan }
-        if size == cursor.size { return .skipUnchanged }
+        if size == cursor.size {
+            // Same length but a newer date: the file was rewritten in place.
+            return mtime == cursor.mtime ? .skipUnchanged : .rescan
+        }
+        // A resume only makes sense past the already-counted bytes starting
+        // from offset 0 would read the whole file again on top of the stored
+        // contribution (a first line with no trailing newline does exactly
+        // this), so it restarts instead.
+        if cursor.offset <= 0 { return .rescan }
         return .resume(from: cursor.offset)
     }
 
     func scan(path: String, decision: ScanDecision, base: FileContribution,
-              inode: UInt64, size: Int64) -> ScanResult? {
+              inode: UInt64, size: Int64, mtime: Date) -> ScanResult? {
         guard decision != .skipUnchanged else { return nil }
         guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else { return nil }
         defer { try? handle.close() }
 
-        var contribution = base
+        var contribution = FileContribution()
         var splitter = LineSplitter()
         var read: Int64 = 0
         if case .resume(let offset) = decision {
+            // Only a resume continues on top of the stored totals; a full read
+            // from byte 0 must start from empty, or the totals it already has
+            // would be counted a second time.
+            contribution = base
             read = offset
             try? handle.seek(toOffset: UInt64(offset))
         }
@@ -111,7 +120,8 @@ final class Scanner {
         let consumed = read - Int64(splitter.carry.count)
         contribution.sessionId = Scanner.sessionId(for: path)
         return ScanResult(contribution: contribution,
-                          cursor: FileCursor(inode: inode, offset: consumed, size: size))
+                          cursor: FileCursor(inode: inode, offset: consumed, size: size,
+                                             lastChanged: Date(), mtime: mtime))
     }
 
     static func sessionId(for path: String) -> String {
@@ -233,7 +243,7 @@ final class Scanner {
 
     private func day(from timestamp: String) -> String? {
         guard let date = isoFractional.date(from: timestamp) ?? isoPlain.date(from: timestamp) else { return nil }
-        return dayFormatter.string(from: date)
+        return DayKey.key(date)
     }
 
     // Naive pass: parses every line with no byte gate, visits toolResult

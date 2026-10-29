@@ -180,7 +180,9 @@ final class StatusController: NSObject {
         vc.previewed = { [weak self] tag in
             self?.cues.preview(tag == 0 ? .permission : .done)
         }
-        vc.sessionOpened = { [weak self] id, app in self?.openSession(id: id, app: app) }
+        vc.focusSessionRequested = { [weak self] id, app, pane, workspace, termProgram in
+            self?.focusSession(id: id, app: app, pane: pane, workspace: workspace, termProgram: termProgram)
+        }
         vc.dashboardRequested = { [weak self] in self?.swapToDashboard() }
         vc.reportRequested = {
             guard let url = URL(string: issuesURL) else { return }
@@ -246,29 +248,29 @@ final class StatusController: NSObject {
 
     // First launch (and every version change): copy the bundled extension into
     // ~/.pi/agent/extensions/ so Pi loads it. Never touches other config.
-    // The bundle wins on a version change, so shipped fixes always land.
+    // The content is what decides, not the version: a rebuilt bundle with the
+    // same version string still ships its fixes. An edited copy on disk loses.
     func ensureExtensionInstalled() {
         let d = UserDefaults.standard
         let current = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? ""
-        guard d.string(forKey: "installedVersion") != current,
-              let src = Bundle.main.path(forResource: "pi-statusbar", ofType: "ts") else { return }
+        guard let src = Bundle.main.path(forResource: "pi-statusbar", ofType: "ts") else { return }
         let destDir = (NSHomeDirectory() as NSString).appendingPathComponent(".pi/agent/extensions")
         let dest = (destDir as NSString).appendingPathComponent("pi-statusbar.ts")
         do {
             try FileManager.default.createDirectory(atPath: destDir, withIntermediateDirectories: true)
-            if FileManager.default.fileExists(atPath: dest) {
-                let destData = try Data(contentsOf: URL(fileURLWithPath: dest))
-                let srcData = try Data(contentsOf: URL(fileURLWithPath: src))
-                if destData == srcData {
-                    d.set(current, forKey: "installedVersion")
-                    return
-                }
-                try? FileManager.default.removeItem(atPath: dest)
+            let srcData = try Data(contentsOf: URL(fileURLWithPath: src))
+            if FileManager.default.fileExists(atPath: dest),
+               let destData = try? Data(contentsOf: URL(fileURLWithPath: dest)),
+               destData == srcData {
+                d.set(current, forKey: "installedVersion")
+                return
             }
+            try? FileManager.default.removeItem(atPath: dest)
             try FileManager.default.copyItem(atPath: src, toPath: dest)
             d.set(current, forKey: "installedVersion")
         } catch {
-            NSLog("PiStatusBar: extension install failed: \(error)")
+            logEvent(level: "error", source: "app", event: "extension-install-failed",
+                     ["detail": String(describing: error)])
         }
     }
 
@@ -295,7 +297,7 @@ final class StatusController: NSObject {
         for id in Array(sessions.keys) {
             guard var s = sessions[id] else { continue }
             // What a session file means lives in SessionRules, where it is
-            // covered by tests/sessionrules.
+            // covered by SessionRulesTests.
             let decision = SessionRules.decide(state: s.state, ts: s.ts, pid: s.pid,
                                                processAlive: SessionRules.processAlive(s.pid),
                                                previousReported: lastReported[id], now: now)
@@ -489,22 +491,6 @@ final class StatusController: NSObject {
     @objc func quit() {
         FileManager.default.createFile(atPath: quitIntentPath, contents: nil)
         NSApp.terminate(nil)
-    }
-
-    func openSession(id: String, app: String) {
-        guard !app.isEmpty else { return }
-        let name: String
-        switch app {
-        case "Apple_Terminal": name = "Terminal"
-        case "iTerm.app": name = "iTerm"
-        case "vscode": name = "Visual Studio Code"
-        case "WarpTerminal": name = "Warp"
-        default: name = app
-        }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        p.arguments = ["-a", name]
-        try? p.run()
     }
 }
 

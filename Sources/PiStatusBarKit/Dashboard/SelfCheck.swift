@@ -11,7 +11,7 @@ enum SelfCheck {
         let store = DashboardStore(cachePath: cachePath, sessionRoot: sessionRoot)
         store.maxFilesPerPass = Int.max // the check needs every file in one pass
 
-        store.runPass()
+        store.runPassNow()
         let cold = store.lastPassSnapshot
         let coldCursors = store.allCursors
         check("cold scan", cold.filesScanned > 0,
@@ -24,7 +24,7 @@ enum SelfCheck {
         print("      languages: " + cold.languages.prefix(5).map { "\($0.name)=\($0.lines)" }.joined(separator: " "))
         print("      projects: " + cold.projects.prefix(5).map { "\($0.label)=\($0.tokens)" }.joined(separator: " "))
 
-        store.runPass()
+        store.runPassNow()
         let warm = store.lastPassSnapshot
         let warmBytes = store.bytesReadLastPass
         let secondCursors = store.allCursors
@@ -80,6 +80,7 @@ enum SelfCheck {
         let reloaded = DashboardStore.loadCache(at: cachePath)
         let roundTrips = reloaded.map {
             $0.cursors == store.allCursors && $0.contributions == store.contributionsByPath
+            && $0.archive == store.archivedByPath
             && tokensEqual($0.snapshot.tokens, warm.tokens) && costEqual($0.snapshot.cost, warm.cost)
             && $0.snapshot.messages == warm.messages && toolCalls($0.snapshot) == toolCalls(warm)
             && $0.snapshot.models == warm.models && $0.snapshot.days == warm.days
