@@ -59,5 +59,7 @@ jobs:
             echo "cask unchanged, nothing to push"
           else
             git commit -m "pi-status-bar $V"
-            git push
+            # Explicit refspec: a clone of the still-empty tap has no upstream
+            # configured, and push.default=simple refuses a bare `git push`.
+            git push origin HEAD:main
           fi
