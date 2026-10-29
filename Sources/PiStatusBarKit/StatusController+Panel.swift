@@ -2,7 +2,7 @@ import Cocoa
 
 // Shared serial queue for focusing a multiplexer pane. Module-level because an
 // extension cannot add stored static properties.
-private let focusQueueShared = DispatchQueue(label: "com.local.pistatusbar.focus", qos: .userInitiated)
+private let focusQueueShared = DispatchQueue(label: "io.github.sabuz796.pistatusbar.focus", qos: .userInitiated)
 
 // Panel mode: everything that opens, closes, feeds, and quits through the
 // π popover panel. Key paths live here too, because the panel is not an

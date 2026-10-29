@@ -41,7 +41,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleName</key><string>PiStatusBar</string>
   <key>CFBundleDisplayName</key><string>Pi Status Bar</string>
-  <key>CFBundleIdentifier</key><string>com.local.pistatusbar</string>
+  <key>CFBundleIdentifier</key><string>io.github.sabuz796.pistatusbar</string>
   <key>CFBundleExecutable</key><string>PiStatusBar</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>

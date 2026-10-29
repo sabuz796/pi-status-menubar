@@ -37,7 +37,7 @@ import * as path from "node:path";
 import { spawn, execFile, execFileSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const BUNDLE_ID = "com.local.pistatusbar";
+const BUNDLE_ID = "io.github.sabuz796.pistatusbar";
 
 const DIR = path.join(os.homedir(), ".pi", "statusbar");
 const STATE_DIR = path.join(DIR, "state.d");

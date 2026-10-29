@@ -8,7 +8,7 @@ final class DashboardStore {
 
     private let scanner: Scanner
     private let cachePath: String
-    private let queue = DispatchQueue(label: "com.local.pistatusbar.dashboard", qos: .utility)
+    private let queue = DispatchQueue(label: "io.github.sabuz796.pistatusbar.dashboard", qos: .utility)
     private var cursors: [String: FileCursor] = [:]
     private var contributions: [String: FileContribution] = [:]
     // Transcripts pruned out of the hot set. Their totals still belong in the
