@@ -23,6 +23,17 @@ finished. No window to open. No dock icon. Nothing to keep in the foreground.
 
 You need macOS 13 or newer and the Pi coding agent installed.
 
+**The easy way: Homebrew**
+
+```bash
+brew install --cask sabuz796/pi-status-menubar/pi-status-bar
+```
+
+The app is signed ad-hoc, not notarized, so macOS may block the first launch. Right-click the app
+and choose **Open**, or run `xattr -dr com.apple.quarantine "/Applications/Pi Status Bar.app"` once.
+
+**The other way: build it yourself**
+
 **1. Build the app**
 
 ```bash

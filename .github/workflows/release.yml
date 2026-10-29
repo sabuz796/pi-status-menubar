@@ -32,3 +32,32 @@ jobs:
           V="${GITHUB_REF_NAME#v}"
           gh release create "v$V" --prerelease --generate-notes --title "$V" --clobber \
             "build/PiStatusBar-$V.dmg" "build/PiStatusBar-$V.dmg.sha256"
+
+      # The tap repo gets the rendered cask. TAP_TOKEN is a PAT with contents
+      # access to sabuz796/homebrew-pi-status-menubar: the job's own token
+      # cannot leave this repository.
+      - name: Update Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_TOKEN:-}" ]; then
+            echo "::error::HOMEBREW_TAP_TOKEN secret is not set (PAT with contents write on sabuz796/homebrew-pi-status-menubar)"
+            exit 1
+          fi
+          V="${GITHUB_REF_NAME#v}"
+          SHA="$(shasum -a 256 "build/PiStatusBar-$V.dmg" | awk '{print $1}')"
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/sabuz796/homebrew-pi-status-menubar.git" tap
+          mkdir -p tap/Casks
+          sed -e "s/@VERSION@/$V/g" -e "s/@SHA256@/$SHA/g" \
+            homebrew/Casks/pi-status-bar.rb > tap/Casks/pi-status-bar.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/pi-status-bar.rb
+          if git diff --cached --quiet; then
+            echo "cask unchanged, nothing to push"
+          else
+            git commit -m "pi-status-bar $V"
+            git push
+          fi
