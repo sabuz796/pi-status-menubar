@@ -25,13 +25,24 @@ jobs:
           cd build
           shasum -a 256 "PiStatusBar-${PISTATUS_VERSION}.dmg" > "PiStatusBar-${PISTATUS_VERSION}.dmg.sha256"
 
-      - name: Publish prerelease
+      # A draft holds the assets without exposing the version, so the cask
+      # below can point at files that already exist.
+      - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           V="${GITHUB_REF_NAME#v}"
-          gh release create "v$V" --prerelease --generate-notes --title "$V" --clobber \
-            "build/PiStatusBar-$V.dmg" "build/PiStatusBar-$V.dmg.sha256"
+          # A re-run after a later step failed finds its own draft here. Without
+          # this, the second run dies on "release already exists" and the cask
+          # step never gets a chance to finish.
+          if gh release view "v$V" >/dev/null 2>&1; then
+            gh release upload "v$V" --clobber \
+              "build/PiStatusBar-$V.dmg" "build/PiStatusBar-$V.dmg.sha256"
+          else
+            gh release create "v$V" --draft --prerelease --generate-notes --title "$V" \
+              "build/PiStatusBar-$V.dmg" "build/PiStatusBar-$V.dmg.sha256"
+          fi
 
       # The tap repo gets the rendered cask. TAP_TOKEN is a PAT with contents
       # access to sabuz796/homebrew-tap: the job's own token cannot leave this
@@ -65,3 +76,10 @@ jobs:
             # refuses a bare `git push`.
             git push origin HEAD:main
           fi
+
+      # The release only becomes public after the tap points at it: a failed
+      # tap leaves a draft, never a published version brew cannot install.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "v${GITHUB_REF_NAME#v}" --draft=false

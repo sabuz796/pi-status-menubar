@@ -219,6 +219,13 @@ final class StatusController: NSObject {
         if d.object(forKey: "doneSound") != nil { cues.doneEnabled = d.bool(forKey: "doneSound") }
         // Write PID file for extension's appRunning() check
         try? FileManager.default.createDirectory(atPath: stateRootDir, withIntermediateDirectories: true)
+        // The extension creates state.d on its first write, but the poll reads
+        // it before that. Without the directory every read fails and logs a
+        // warning on each 0.4s tick.
+        try? FileManager.default.createDirectory(atPath: stateDir, withIntermediateDirectories: true)
+        // Legacy glue is repaired here, not on every append: the repair rewrites
+        // the whole file and the append path must stay a single write.
+        repairGluedLog()
         try? String(ProcessInfo.processInfo.processIdentifier).write(toFile: appPidPath, atomically: true, encoding: .utf8)
         statusItem.button?.action = #selector(togglePanel)
         statusItem.button?.target = self
@@ -249,10 +256,9 @@ final class StatusController: NSObject {
     // First launch (and every version change): copy the bundled extension into
     // ~/.pi/agent/extensions/ so Pi loads it. Never touches other config.
     // The content is what decides, not the version: a rebuilt bundle with the
-    // same version string still ships its fixes. An edited copy on disk loses.
+    // same version string still ships its fixes. An edited copy on disk is
+    // replaced, but kept next to it as .bak so the edit is recoverable.
     func ensureExtensionInstalled() {
-        let d = UserDefaults.standard
-        let current = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? ""
         guard let src = Bundle.main.path(forResource: "pi-statusbar", ofType: "ts") else { return }
         let destDir = (NSHomeDirectory() as NSString).appendingPathComponent(".pi/agent/extensions")
         let dest = (destDir as NSString).appendingPathComponent("pi-statusbar.ts")
@@ -262,12 +268,17 @@ final class StatusController: NSObject {
             if FileManager.default.fileExists(atPath: dest),
                let destData = try? Data(contentsOf: URL(fileURLWithPath: dest)),
                destData == srcData {
-                d.set(current, forKey: "installedVersion")
                 return
+            }
+            if FileManager.default.fileExists(atPath: dest) {
+                let backup = dest + ".bak"
+                try? FileManager.default.removeItem(atPath: backup)
+                // Throwing here keeps the edited file rather than replacing it
+                // without a copy (the catch logs extension-install-failed).
+                try FileManager.default.copyItem(atPath: dest, toPath: backup)
             }
             try? FileManager.default.removeItem(atPath: dest)
             try FileManager.default.copyItem(atPath: src, toPath: dest)
-            d.set(current, forKey: "installedVersion")
         } catch {
             logEvent(level: "error", source: "app", event: "extension-install-failed",
                      ["detail": String(describing: error)])
@@ -298,8 +309,10 @@ final class StatusController: NSObject {
             guard var s = sessions[id] else { continue }
             // What a session file means lives in SessionRules, where it is
             // covered by SessionRulesTests.
+            let alive = SessionRules.processAlive(s.pid)
             let decision = SessionRules.decide(state: s.state, ts: s.ts, pid: s.pid,
-                                               processAlive: SessionRules.processAlive(s.pid),
+                                               processAlive: alive,
+                                               processStart: alive ? SessionRules.processStartTime(s.pid) : nil,
                                                previousReported: lastReported[id], now: now)
             if decision.reaped {
                 try? FileManager.default.removeItem(atPath: (stateDir as NSString).appendingPathComponent(id + ".json"))

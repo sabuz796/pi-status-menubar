@@ -18,6 +18,10 @@ final class DashboardStore {
     private var range: StatsRange = .all
     private var lastSave = Date.distantPast
     private var refreshPending = false // main thread only
+    // Main thread only. Completions that arrive during a pass are queued
+    // rather than dropped: a caller ends work from its completion, so losing
+    // one leaves the UI stuck (the dashboard's refresh spinner never stops).
+    private var pendingCompletions: [(DashboardSnapshot) -> Void] = []
     // Queue-confined: something changed since the last write. The cache holds
     // one entry per transcript, so rewriting it on every idle pass costs disk
     // time that grows with history and buys nothing.
@@ -58,6 +62,7 @@ final class DashboardStore {
     }
 
     func refresh(completion: ((DashboardSnapshot) -> Void)? = nil) {
+        if let completion = completion { pendingCompletions.append(completion) }
         guard !refreshPending else { return }
         refreshPending = true
         queue.async { [weak self] in
@@ -67,7 +72,9 @@ final class DashboardStore {
             DispatchQueue.main.async {
                 self.refreshPending = false
                 self.snapshot = published
-                completion?(published)
+                let completions = self.pendingCompletions
+                self.pendingCompletions = []
+                for completion in completions { completion(published) }
             }
         }
     }
@@ -80,8 +87,7 @@ final class DashboardStore {
             self.range = newRange
             self.lastPassSnapshot = buildSnapshot(Array(self.contributions.values) + Array(self.archive.values),
                                                   range: newRange,
-                                                  filesScanned: self.lastPassSnapshot.filesScanned,
-                                                  scanMillis: self.lastPassSnapshot.scanMillis)
+                                                  filesScanned: self.lastPassSnapshot.filesScanned)
             self.dirty = true
             let published = self.lastPassSnapshot
             DispatchQueue.main.async { self.snapshot = published }
@@ -92,12 +98,11 @@ final class DashboardStore {
         queue.sync { self.save(force: true) }
     }
 
-    // Synchronous pass for the self-check: queue.sync also waits for the pending
+    // Synchronous pass for tests: queue.sync also waits for the pending
     // cache load, so the pass starts from a known state.
     func runPassNow() { queue.sync { runPass() } }
 
     func runPass() {
-        let started = Date()
         let files = scanner.enumerateSessionFiles()
         let present = Set(files)
         for path in cursors.keys where !present.contains(path) {
@@ -120,7 +125,7 @@ final class DashboardStore {
                                           mtime: stat.mtime)
             if decision == .skipUnchanged { continue }
             guard let result = scanner.scan(path: path, decision: decision,
-                                            base: contributions[path] ?? FileContribution(),
+                                            base: contributions[path] ?? archive[path] ?? FileContribution(),
                                             inode: stat.inode, size: stat.size, mtime: stat.mtime) else { continue }
             cursors[path] = result.cursor
             contributions[path] = result.contribution
@@ -133,8 +138,7 @@ final class DashboardStore {
         pruneIfNeeded()
 
         lastPassSnapshot = buildSnapshot(Array(contributions.values) + Array(archive.values), range: range,
-                                         filesScanned: files.count,
-                                         scanMillis: Int(Date().timeIntervalSince(started) * 1000))
+                                         filesScanned: files.count)
         save(force: false)
     }
 
@@ -168,7 +172,8 @@ final class DashboardStore {
         guard !retired.isEmpty else { return }
         for path in retired {
             if let contribution = contributions.removeValue(forKey: path) { archive[path] = contribution }
-            cursors[path] = nil
+            // The cursor stays, so the next pass skips this file instead of
+            // reading it back out of the archive.
         }
         dirty = true
     }

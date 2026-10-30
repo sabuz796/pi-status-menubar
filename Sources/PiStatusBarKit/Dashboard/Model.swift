@@ -4,7 +4,6 @@ struct TokenTotals: Codable, Equatable {
     var input = 0, output = 0, cacheRead = 0, cacheWrite = 0, reasoning = 0
     var total = 0
     var records = 0
-    var recordsWithoutSplit = 0
 
     static func + (a: TokenTotals, b: TokenTotals) -> TokenTotals {
         TokenTotals(
@@ -14,12 +13,9 @@ struct TokenTotals: Codable, Equatable {
             cacheWrite: a.cacheWrite + b.cacheWrite,
             reasoning: a.reasoning + b.reasoning,
             total: a.total + b.total,
-            records: a.records + b.records,
-            recordsWithoutSplit: a.recordsWithoutSplit + b.recordsWithoutSplit
+            records: a.records + b.records
         )
     }
-
-    var splittable: Int { input + output + cacheRead + cacheWrite }
 }
 
 struct CostTotals: Codable, Equatable {
@@ -140,8 +136,8 @@ struct DashboardSnapshot: Codable, Equatable {
     var projects: [RankedEntry] = []
     var languages: [LanguageEntry] = []
     var tools: [RankedEntry] = []
-    var usageRecords = 0, usageRecordsWithoutSplit = 0
-    var filesScanned = 0, scanMillis = 0
+    var usageRecords = 0
+    var filesScanned = 0
     var metric: Metric { Metric(costTotal: cost.total) }
     var topLanguage: LanguageEntry? { languages.first }
 }

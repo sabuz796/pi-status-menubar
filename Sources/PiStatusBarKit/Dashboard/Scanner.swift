@@ -189,7 +189,6 @@ final class Scanner {
         tokens.reasoning = number(usage["reasoning"])
         tokens.total = number(usage["totalTokens"])
         tokens.records = 1
-        if tokens.splittable == 0 && tokens.total > 0 { tokens.recordsWithoutSplit = 1 }
         bucket.tokens = bucket.tokens + tokens
 
         var cost = CostTotals()
@@ -244,33 +243,5 @@ final class Scanner {
     private func day(from timestamp: String) -> String? {
         guard let date = isoFractional.date(from: timestamp) ?? isoPlain.date(from: timestamp) else { return nil }
         return DayKey.key(date)
-    }
-
-    // Naive pass: parses every line with no byte gate, visits toolResult
-    // records, and only ever adds assistant toolCall blocks to `assistant`.
-    func naiveToolCallCount(path: String) -> (assistant: Int, includingResults: Int) {
-        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else { return (0, 0) }
-        defer { try? handle.close() }
-
-        var assistant = 0
-        var includingResults = 0
-        var splitter = LineSplitter()
-        while let chunk = try? handle.read(upToCount: 4 * 1024 * 1024), !chunk.isEmpty {
-            splitter.process(chunk) { raw in
-                guard let json = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
-                      json["type"] as? String == "message",
-                      let message = json["message"] as? [String: Any] else { return }
-                if message["role"] as? String == "assistant" {
-                    for item in (message["content"] as? [[String: Any]]) ?? []
-                    where item["type"] as? String == "toolCall" {
-                        assistant += 1
-                        includingResults += 1
-                    }
-                } else if message["role"] as? String == "toolResult" {
-                    includingResults += 1
-                }
-            }
-        }
-        return (assistant, includingResults)
     }
 }

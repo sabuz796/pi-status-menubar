@@ -210,10 +210,10 @@ final class MenuPanelViewController: NSViewController {
         toggleRow("Show Text", symbol: "doc.text", key: "showLabel", checked: r.showText)
         stack.addArrangedSubview(divider())
         heading("Sounds")
-        soundRow("Permission Sound", symbol: "speaker.wave.2", key: "permissionSound",
-                 enabled: r.permission, tag: 0)
-        soundRow("Finish Sound", symbol: "music.note", key: "doneSound",
-                 enabled: r.finish, tag: 1)
+        toggleRow("Permission Sound", symbol: "speaker.wave.2", key: "permissionSound",
+                  checked: r.permission, previewTag: 0)
+        toggleRow("Finish Sound", symbol: "music.note", key: "doneSound",
+                  checked: r.finish, previewTag: 1)
         stack.addArrangedSubview(divider())
         // No key hints: the panel does not take the keyboard, so ⌘D here would
         // reach the user's app instead. A shortcut that only works once the
@@ -287,9 +287,12 @@ final class MenuPanelViewController: NSViewController {
         return holder
     }
 
-    private func toggleRow(_ title: String, symbol: String, key: String, checked: Bool) {
+    // A toggle row. A previewTag adds the play button that tests the sound;
+    // the plain toggles carry a row identifier, the sound rows only label one.
+    private func toggleRow(_ title: String, symbol: String, key: String, checked: Bool,
+                           previewTag: Int? = nil) {
         let row = PanelHoverRow()
-        row.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)")
+        if previewTag == nil { row.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)") }
         let (mark, label) = rowButton(title, checked: checked)
         let icon = rowIcon(symbol)
         label.target = self
@@ -297,38 +300,24 @@ final class MenuPanelViewController: NSViewController {
         label.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)")
         label.setAccessibilityValue(checked ? "on" : "off")
         row.activate = { [weak self] in self?.toggleKey(key) }
+        var play: PanelButton?
+        if let tag = previewTag {
+            let button = PanelButton()
+            button.isBordered = false
+            button.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play test sound")
+            button.contentTintColor = .labelColor
+            button.toolTip = "Play test sound"
+            button.target = self
+            button.action = #selector(playPressed(_:))
+            button.tag = tag
+            button.setAccessibilityLabel("Play \(title)")
+            play = button
+        }
         row.hoverChanged = { hovered in
             mark.attributedStringValue = rowText(checked ? "✓" : " ", font: rowFont,
                                                  base: .labelColor, hovered: hovered)
             label.attributedTitle = rowText(title, font: rowFont, base: .labelColor, hovered: hovered)
-            icon.contentTintColor = hovered ? hoverInk() : .secondaryLabelColor
-        }
-        addRowToStack(row, leading: [mark, icon, label], trailing: nil)
-    }
-
-    private func soundRow(_ title: String, symbol: String, key: String, enabled: Bool, tag: Int) {
-        let row = PanelHoverRow()
-        let (mark, label) = rowButton(title, checked: enabled)
-        let icon = rowIcon(symbol)
-        label.target = self
-        label.action = #selector(toggleRowPressed(_:))
-        label.identifier = NSUserInterfaceItemIdentifier("toggle|\(key)")
-        label.setAccessibilityValue(enabled ? "on" : "off")
-        row.activate = { [weak self] in self?.toggleKey(key) }
-        let play = PanelButton()
-        play.isBordered = false
-        play.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play test sound")
-        play.contentTintColor = .labelColor
-        play.toolTip = "Play test sound"
-        play.target = self
-        play.action = #selector(playPressed(_:))
-        play.tag = tag
-        play.setAccessibilityLabel("Play \(title)")
-        row.hoverChanged = { hovered in
-            mark.attributedStringValue = rowText(enabled ? "✓" : " ", font: rowFont,
-                                                 base: .labelColor, hovered: hovered)
-            label.attributedTitle = rowText(title, font: rowFont, base: .labelColor, hovered: hovered)
-            play.contentTintColor = hovered ? hoverInk() : .labelColor
+            play?.contentTintColor = hovered ? hoverInk() : .labelColor
             icon.contentTintColor = hovered ? hoverInk() : .secondaryLabelColor
         }
         addRowToStack(row, leading: [mark, icon, label], trailing: play)
@@ -370,9 +359,6 @@ final class MenuPanelViewController: NSViewController {
                                                   base: .secondaryLabelColor, hovered: hovered)
         }
         sessionLabels[s.id] = (state, dot, name, row)
-        logEvent(level: "info", source: "app", event: "row-built",
-                 ["row": "session|\(s.id)", "focusable": focusable ? "1" : "0",
-                  "pane": s.terminalWindowId, "app": s.terminalApp])
 
         let top = NSStackView(views: [dot, name])
         top.orientation = .horizontal

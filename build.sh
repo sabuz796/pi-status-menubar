@@ -74,7 +74,8 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$ICONSET"
 
 xattr -cr "$APP"
-codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+# A failed signature must fail the build, not ship an unsigned app.
+codesign --force --sign - "$APP"
 echo "Built $APP"
 
 if [[ "${1:-}" == "--dmg" ]]; then

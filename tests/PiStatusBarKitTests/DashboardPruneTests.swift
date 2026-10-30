@@ -118,8 +118,81 @@ final class DashboardPruneTests: XCTestCase {
                        "all-range totals keep the retired data")
         XCTAssertEqual(store.lastPassSnapshot.sessions, 2, "the archive keeps the session row")
 
+        // A retired transcript keeps its cursor, so the next pass skips it
+        // instead of reading the whole file back out of the archive.
+        store.runPassNow()
+        XCTAssertEqual(store.bytesReadLastPass, 0, "a retired transcript is not read again")
+        XCTAssertEqual(store.archivedByPath[staleFile]?.byDay["2026-01-02"]?.tokens.total, 10,
+                       "the archive survives a pass that does not rescan the file")
+        XCTAssertEqual(store.lastPassSnapshot.tokens.total, expectedTokens,
+                       "a second pass neither loses nor double counts the retired totals")
+
         store.stop()
         let reloaded = DashboardStore.loadCache(at: cachePath)
         XCTAssertNotNil(reloaded?.archive[staleFile], "the archive persists to disk")
+
+        // Appending to a retired transcript resumes from the archive: the
+        // older day is kept and only the new line is added.
+        let append = "{\"type\":\"message\",\"timestamp\":\"2026-01-03T03:04:05.000Z\",\"message\":{\"role\":\"assistant\",\"usage\":{\"totalTokens\":10,\"total\":10},\"content\":[]}}\n"
+        if let handle = FileHandle(forWritingAtPath: staleFile) {
+            handle.seekToEndOfFile()
+            handle.write(Data(append.utf8))
+            handle.closeFile()
+        }
+        store.runPassNow()
+        XCTAssertEqual(store.contributionsByPath[staleFile]?.byDay["2026-01-02"]?.tokens.total, 10,
+                       "the archived day survives the resume")
+        XCTAssertEqual(store.contributionsByPath[staleFile]?.byDay["2026-01-03"]?.tokens.total, 10,
+                       "the appended day is added once")
+        XCTAssertNil(store.archivedByPath[staleFile], "the resumed contribution replaces the archive")
+        XCTAssertEqual(store.lastPassSnapshot.tokens.total, expectedTokens + 10,
+                       "a resume neither loses nor double counts")
+    }
+
+    // Keeping a retired file's cursor also exposes its archive entry to the
+    // absent-file cleanup. That is deliberate: deleting a transcript stops it
+    // counting, hot or archived, so the dashboard only ever shows history that
+    // is still on disk. Pinned so a later edit cannot flip it silently.
+    func testDeletedArchivedTranscriptStopsCounting() {
+        let root = NSTemporaryDirectory() + "pistatusbar-prune-deleted-\(UUID().uuidString)"
+        let home = (root as NSString).appendingPathComponent("home")
+        let cachePath = (home as NSString).appendingPathComponent("dashboard-cache.json")
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try? FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
+
+        let file = (root as NSString).appendingPathComponent("stale.jsonl")
+        let text = "{\"type\":\"message\",\"timestamp\":\"2026-01-02T03:04:05.000Z\",\"message\":{\"role\":\"assistant\",\"usage\":{\"totalTokens\":10,\"total\":10},\"content\":[]}}\n"
+        try? (text as NSString).write(toFile: file, atomically: true, encoding: String.Encoding.utf8.rawValue)
+        let stat = Scanner(rootDir: root).stat(at: file)!
+
+        var cursors = [String: FileCursor]()
+        var contributions = [String: FileContribution]()
+        cursors[file] = FileCursor(inode: stat.inode, offset: stat.size, size: stat.size,
+                                   lastChanged: Date().addingTimeInterval(-70 * 86400), mtime: stat.mtime)
+        var contribution = FileContribution()
+        contribution.cwd = "/tmp/stale"
+        var bucket = DayBucket()
+        bucket.tokens.total = 10
+        bucket.messages = 1
+        contribution.byDay["2026-01-02"] = bucket
+        contributions[file] = contribution
+
+        let cache = DashboardCache(version: 2, timeZoneIdentifier: TimeZone.current.identifier,
+                                   range: .all, savedAt: Date(), cursors: cursors,
+                                   contributions: contributions, archive: [:],
+                                   snapshot: DashboardSnapshot())
+        try? FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
+        try? JSONEncoder().encode(cache).write(to: URL(fileURLWithPath: cachePath))
+
+        let store = DashboardStore(cachePath: cachePath, sessionRoot: root)
+        store.runPassNow()
+        XCTAssertEqual(store.archivedByPath[file]?.byDay["2026-01-02"]?.tokens.total, 10,
+                       "the cold transcript is archived, not dropped")
+
+        try? FileManager.default.removeItem(atPath: file)
+        store.runPassNow()
+        XCTAssertNil(store.archivedByPath[file], "a deleted transcript leaves the archive")
+        XCTAssertEqual(store.lastPassSnapshot.tokens.total, 0, "and stops counting")
+        XCTAssertEqual(store.lastPassSnapshot.sessions, 0)
     }
 }

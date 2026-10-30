@@ -17,12 +17,11 @@ func cutoffDay(for range: StatsRange, now: Date = Date()) -> String? {
 // range therefore needs no rescan and nothing can drift, because no total is
 // ever adjusted, only rebuilt.
 func buildSnapshot(_ contributions: [FileContribution], range: StatsRange,
-                   filesScanned: Int, scanMillis: Int, now: Date = Date()) -> DashboardSnapshot {
+                   filesScanned: Int, now: Date = Date()) -> DashboardSnapshot {
     var snapshot = DashboardSnapshot()
     snapshot.generatedAt = now
     snapshot.range = range
     snapshot.filesScanned = filesScanned
-    snapshot.scanMillis = scanMillis
 
     let cutoff = cutoffDay(for: range, now: now)
     // An empty key holds rows with no usable timestamp, so a bounded range drops
@@ -88,7 +87,6 @@ func buildSnapshot(_ contributions: [FileContribution], range: StatsRange,
 
     snapshot.sessions = sessions
     snapshot.usageRecords = snapshot.tokens.records
-    snapshot.usageRecordsWithoutSplit = snapshot.tokens.recordsWithoutSplit
     snapshot.activeDays = days.values.filter { $0.tokens > 0 || $0.cost > 0 }.count
 
     let byCost = snapshot.metric == .cost
@@ -124,14 +122,16 @@ func buildSnapshot(_ contributions: [FileContribution], range: StatsRange,
 }
 
 // Ascending, gaps filled with zero. A bounded range shows the whole window, so
-// the chart keeps one row per day even when a day was idle.
+// the chart keeps one row per day even when a day was idle. A stamp past today
+// is not drawn: one bad future timestamp must not stretch the series.
 private func series(_ days: [String: Accumulator], cutoff: String?, now: Date) -> [DayUsage] {
-    let keys = days.keys.filter { !$0.isEmpty }.sorted()
+    let today = DayKey.key(now)
+    let keys = days.keys.filter { !$0.isEmpty && $0 <= today }.sorted()
     let firstKey: String
     let lastKey: String
     if let cutoff = cutoff {
         firstKey = cutoff
-        lastKey = max(keys.last ?? cutoff, DayKey.key(now))
+        lastKey = max(keys.last ?? cutoff, today)
     } else {
         guard let first = keys.first, let last = keys.last else { return [] }
         firstKey = first

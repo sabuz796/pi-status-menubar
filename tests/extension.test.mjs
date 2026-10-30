@@ -28,13 +28,13 @@ test("pi-statusbar extension state machine", async (t) => {
 	// ensureAppRunning() returns early when the app looks alive. Claiming our
 	// own PID makes appRunning() true, so it never spawns `open -g -b ...`.
 	// The pid-identity check asks ps for the process name, so a tiny fake ps
-	// names every process PiStatusBar; the ppid query pane detection needs
-	// fails, which is exactly the "probe unreliable" path it must survive;
-	// anything else still runs the real ps.
+	// names every process PiStatusBar. The process-tree query that pane
+	// detection needs fails, which is exactly the "probe unreliable" path it
+	// must survive. Anything else still runs the real ps.
 	const binDir = path.join(home, "bin");
 	fs.mkdirSync(binDir, { recursive: true });
 	fs.writeFileSync(path.join(binDir, "ps"),
-		"#!/bin/sh\nif [ \"$2\" = \"comm=\" ]; then echo PiStatusBar; elif [ \"$2\" = \"ppid=\" ]; then exit 1; else exec /bin/ps \"$@\"; fi\n");
+		"#!/bin/sh\nif [ \"$2\" = \"comm=\" ]; then echo PiStatusBar; elif [ \"$2\" = \"pid=,ppid=\" ]; then exit 1; else exec /bin/ps \"$@\"; fi\n");
 	fs.chmodSync(path.join(binDir, "ps"), 0o755);
 	process.env.PATH = binDir + ":" + process.env.PATH;
 	fs.writeFileSync(path.join(statusDir, "app.pid"), String(process.pid));
@@ -80,7 +80,7 @@ test("pi-statusbar extension state machine", async (t) => {
 	const ctx = { cwd: "/tmp/my-app", sessionManager: { getSessionId: () => "sess-1" } };
 	const stateFile = path.join(statusDir, "state.d", "sess-1.json");
 	const readState = () => JSON.parse(fs.readFileSync(stateFile, "utf8"));
-	const TOTAL = 27;
+	const TOTAL = 29;
 	const done = [];
 
 	function step(name, fn) {
@@ -212,6 +212,29 @@ test("pi-statusbar extension state machine", async (t) => {
 		step("N failed re-detect keeps the known pane", () => {
 			assert.strictEqual(kept.terminalApp, "cmux");
 			assert.strictEqual(kept.terminalWindowId, "pane:999");
+		});
+
+		// O. Startup records the pane through the same async detection the tick
+		// uses. A fake process table and a fake tmux make the detection succeed,
+		// so the seeded idle file must end up carrying the pane fields.
+		fs.writeFileSync(path.join(binDir, "ps"),
+			"#!/bin/sh\nif [ \"$2\" = \"comm=\" ]; then echo PiStatusBar; elif [ \"$2\" = \"pid=,ppid=\" ]; then echo "
+			+ process.pid + " 4242; echo 4242 1; else exec /bin/ps \"$@\"; fi\n");
+		fs.chmodSync(path.join(binDir, "ps"), 0o755);
+		fs.writeFileSync(path.join(binDir, "tmux"),
+			"#!/bin/sh\nif [ \"$1\" = \"list-panes\" ]; then echo \"%9 4242\"; fi\nexit 0\n");
+		fs.chmodSync(path.join(binDir, "tmux"), 0o755);
+		const ctx2 = { cwd: "/tmp/second", sessionManager: { getSessionId: () => "sess-2" } };
+		await handlers.session_start(undefined, ctx2);
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		const seeded = JSON.parse(fs.readFileSync(path.join(statusDir, "state.d", "sess-2.json"), "utf8"));
+		step("O startup detection writes the pane", () => {
+			assert.strictEqual(seeded.terminalApp, "tmux");
+			assert.strictEqual(seeded.terminalWindowId, "%9");
+		});
+		step("O the seed keeps its idle state", () => {
+			assert.strictEqual(seeded.state, "idle");
+			assert.strictEqual(seeded.started, false);
 		});
 	} finally {
 		const failed = done.length !== TOTAL;

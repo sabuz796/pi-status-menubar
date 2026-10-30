@@ -11,6 +11,8 @@ finished. No window to open. No dock icon. Nothing to keep in the foreground.
  π        ← the menu bar item: spins while working, dots when it needs you
 ```
 
+![Pi Status Bar: the spinning menu bar icon, the session panel, and the Pi Stats dashboard](images/showcase.gif)
+
 ## What you get
 
 | Where | What it shows |
@@ -170,14 +172,8 @@ node tests/extension.test.mjs
 npx tsc --noEmit
 ```
 
-**Check the dashboard's own reading of the session history**
-
-```bash
-"build/Pi Status Bar.app/Contents/MacOS/PiStatusBar" --selfcheck
-```
-
-`PISTATUS_SESSION_ROOT` points the same check at another folder; CI runs it against
-`tests/fixtures/sessions` so a parser change cannot land untested.
+The dashboard tests scan `tests/fixtures/sessions`, so a parser change cannot
+land untested.
 
 **Where things live**
 
@@ -185,7 +181,7 @@ npx tsc --noEmit
 |---|---|
 | `Package.swift` | One package: the library, the executable and the tests |
 | `Sources/PiStatusBar/main.swift` | Entry point. Starts the app from the library |
-| `Sources/PiStatusBarKit/App.swift` | App startup and the dashboard self-check |
+| `Sources/PiStatusBarKit/App.swift` | App startup |
 | `Sources/PiStatusBarKit/AppPaths.swift` | The state directory layout the app and the extension share |
 | `Sources/PiStatusBarKit/StatusController.swift` | Status item, icon drawing, session polling |
 | `Sources/PiStatusBarKit/StatusController+Panel.swift` | Opening and closing the panel, the toggles |
@@ -196,7 +192,7 @@ npx tsc --noEmit
 | `Sources/PiStatusBarKit/Dashboard/` | The Pi Stats dashboard: scanning, storing and drawing the numbers |
 | `extensions/pi-statusbar.ts` | The Pi extension that writes the session files |
 | `tools/AppIcon/main.swift` | Turns `images/app-icon.svg` into an `.icns` icon |
-| `tests/` | The package tests, the self-check fixtures and the extension state machine |
+| `tests/` | The package tests, their session fixtures and the extension state machine |
 | `build.sh` | Builds the app, both chip kinds, plus the icon and an optional DMG |
 | `.github/workflows/` | CI on every push, and the release job that runs on a tag |
 | `LICENSE` | MIT |
@@ -218,6 +214,12 @@ test suites.
 
 Issues and pull requests are welcome. CI runs the Swift type check and the test programs in
 `tests/`; run them the way `.github/workflows/ci.yml` does before opening a PR.
+
+## Credits
+
+The Dashboard (the **Pi Stats** panel) takes its design from
+[pi-infobar](https://github.com/phun333/pi-infobar) by
+[@phun333](https://github.com/phun333). Credit for the layout and the look goes there.
 
 ## License
 

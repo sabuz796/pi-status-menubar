@@ -15,14 +15,6 @@ import Cocoa
 // animation only mutates arcLayer.rotation, which the GPU composites.
 public enum PiStatusBarApp {
     public static func main() {
-        if CommandLine.arguments.contains("--selfcheck") {
-            // A fresh cache path keeps the check a true cold scan and leaves the real one alone.
-            let selfCheckCache = (NSTemporaryDirectory() as NSString).appendingPathComponent("pi-statusbar-selfcheck.json")
-            try? FileManager.default.removeItem(atPath: selfCheckCache)
-            // CI points this at a small fixture folder; a normal run reads the real sessions.
-            let root = ProcessInfo.processInfo.environment["PISTATUS_SESSION_ROOT"] ?? sessionRootDir
-            exit(SelfCheck.run(sessionRoot: root, cachePath: selfCheckCache))
-        }
         // One instance only: a second launch wakes the running one and quits.
         if let running = runningInstancePid() {
             NSRunningApplication(processIdentifier: running)?.activate(options: [.activateAllWindows])

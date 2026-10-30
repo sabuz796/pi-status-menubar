@@ -18,7 +18,7 @@ enum LanguageMarks {
     // the SF Symbol every caller falls back to. Keys are lowercased language
     // names as languageName(forExtension:) produces them. Anything missing
     // gets the generic "doc".
-    private static let iconFor: [String: (asset: String, symbol: String)] = [
+    private static let iconFor: [String: (asset: String?, symbol: String)] = [
         "typescript": ("typescript", "curlybraces"),
         "javascript": ("javascript", "curlybraces"),
         "json": ("json", "curlybraces"),
@@ -37,8 +37,8 @@ enum LanguageMarks {
         "go": ("go", "chevron.left.forwardslash.chevron.right"),
         "java": ("java", "chevron.left.forwardslash.chevron.right"),
         "ruby": ("ruby", "chevron.left.forwardslash.chevron.right"),
-        "sql": (asset: "sql", symbol: "cylinder"),
-        "text": (asset: "text", symbol: "doc.plaintext"),
+        "sql": (asset: nil, symbol: "cylinder"),
+        "text": (asset: nil, symbol: "doc.plaintext"),
     ]
 
     private static var loadCache: [String: Mark] = [:]
@@ -49,7 +49,7 @@ enum LanguageMarks {
     }
 
     static func mark(for language: String) -> Mark? {
-        guard let asset = iconFor[language.lowercased()]?.asset else { return nil }
+        guard let entry = iconFor[language.lowercased()], let asset = entry.asset else { return nil }
         if let cached = loadCache[asset] { return cached }
         guard let url = assetURL(asset),
               let image = NSImage(contentsOf: url) else { return nil }

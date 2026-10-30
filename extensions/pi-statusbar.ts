@@ -322,9 +322,8 @@ function writeState(
 }
 
 
-// Pure parsers shared by the sync startup path below and the async pane tick:
-// one grammar for "which pane owns this process", no processes involved.
-// Exported for the state machine test.
+// Pure parsers for pane detection: one grammar for "which pane owns this
+// process", no processes involved. Exported for the state machine test.
 export type PaneHint = { app: string; paneId: string; workspaceId?: string } | null | undefined;
 
 export function paneFromTmux(out: string, ancestors: number[],
@@ -347,53 +346,6 @@ export function paneFromCmux(out: string): { app: string; paneId: string; worksp
 	return null;
 }
 
-// Walk up the process tree from this Pi process until we hit a terminal
-// multiplexer. Returns the multiplexer name plus the pane id that owns this
-// process, or null when Pi is not running inside cmux or tmux.
-function detectMultiplexerPane(): { app: string; paneId: string; workspaceId?: string } | null {
-	// Collect ancestor pids, closest first.
-	const ancestors: number[] = [];
-	let pid = process.pid;
-	for (let i = 0; i < 16; i++) {
-		try {
-			const out = execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" }).trim();
-			const ppid = Number(out);
-			if (!ppid || ppid === pid) break;
-			ancestors.push(ppid);
-			pid = ppid;
-		} catch {
-			break;
-		}
-	}
-	if (ancestors.length === 0) return null;
-
-	// tmux: a pane whose pane_pid is one of our ancestors.
-	try {
-		const tmuxOut = execFileSync("tmux", ["list-panes", "-a", "-F", "#{pane_id} #{pane_pid}"], { encoding: "utf8" });
-		const match = paneFromTmux(tmuxOut, ancestors, "tmux");
-		if (match) return match;
-	} catch {}
-
-	// cmux: `cmux identify` reports the caller's own pane/surface/workspace,
-	// which is exactly the pane this Pi process lives in. No ancestor walk
-	// needed, because the extension runs inside cmux's terminal surface.
-	try {
-		const cmux = paneFromCmux(execFileSync("cmux", ["identify"], { encoding: "utf8" }));
-		if (cmux) return cmux;
-	} catch {}
-
-	// If tmux did not match but a cmux binary exists and one of our ancestors
-	// is a tmux server launched by cmux, treat it as cmux. cmux panes are tmux
-	// panes, so the pane id from tmux is still the right target.
-	try {
-		execFileSync("which", ["cmux"], { stdio: "ignore" });
-		const tmuxOut = execFileSync("tmux", ["list-panes", "-a", "-F", "#{pane_id} #{pane_pid}"], { encoding: "utf8" });
-		const match = paneFromTmux(tmuxOut, ancestors, "cmux");
-		if (match) return match;
-	} catch {}
-	return null;
-}
-
 // Pane ids go stale when a pane is killed or moved. Re-detect periodically
 // and rewrite the terminal fields of the state files this process owns, so
 // click-to-focus follows. The refresh marker from the app re-detects early.
@@ -402,9 +354,8 @@ const PANE_RECHECK_MS = 30_000;
 let paneTimer: ReturnType<typeof setInterval> | null = null;
 let lastPaneCheck = 0;
 
-// The pane tick runs every 3 s, so its detection is async (execFile): a slow
-// or hung ps/tmux must not block the Pi process it runs inside. The startup
-// path above stays synchronous because it runs exactly once per session.
+// Detection is async (execFile): a slow or hung ps/tmux must not block the Pi
+// process it runs inside, both at startup and on the 3 s pane tick.
 // execOut resolves nil on any error (binary missing, nonzero exit), an empty
 // string for a command that ran and produced nothing.
 function execOut(cmd: string, args: string[]): Promise<string | null> {
@@ -414,17 +365,26 @@ function execOut(cmd: string, args: string[]): Promise<string | null> {
 }
 
 async function detectPaneAsync(): Promise<PaneHint | null | undefined> {
+	// One ps lists the whole process table; walk it in memory instead of one
+	// ps spawn per ancestor.
+	const table = await execOut("ps", ["-axo", "pid=,ppid="]);
+	if (table === null) {
+		// The one probe every branch depends on failed; the answer would be
+		// noise, not an observation of "left the multiplexer".
+		return undefined;
+	}
+	const parentOf = new Map<number, number>();
+	for (const line of table.split("\n")) {
+		const [pidText, ppidText] = line.trim().split(/\s+/);
+		const child = Number(pidText);
+		const parent = Number(ppidText);
+		if (child > 0 && parent > 0) parentOf.set(child, parent);
+	}
 	// Collect ancestor pids, closest first.
 	const ancestors: number[] = [];
 	let pid = process.pid;
 	for (let i = 0; i < 16; i++) {
-		const out = await execOut("ps", ["-o", "ppid=", "-p", String(pid)]);
-		if (out === null) {
-			// The one probe every branch depends on failed; the answer would be
-			// noise, not an observation of "left the multiplexer".
-			return undefined;
-		}
-		const ppid = Number(out.trim());
+		const ppid = parentOf.get(pid);
 		if (!ppid || ppid === pid) break;
 		ancestors.push(ppid);
 		pid = ppid;
@@ -554,32 +514,11 @@ export default function (pi: ExtensionAPI) {
 			});
 			ensureAppRunning();
 			startPaneTimer();
-			// Record which multiplexer pane owns this session, if any. Empty values
-			// keep the panel row read-only, which is the safe default.
-			const mp = detectMultiplexerPane();
-			if (mp) {
-				try {
-					const prev = readPrev(id);
-					writeAtomic(statePath(id), {
-						state: "idle",
-						label: "",
-						tool: "",
-						project: cwd ? path.basename(cwd) : (typeof prev.project === "string" ? prev.project : ""),
-						cwd,
-						sessionId: id,
-						sessionName,
-						entrypoint: "pi",
-						term_program: process.env.TERM_PROGRAM || "",
-						terminalApp: mp.app,
-						terminalWindowId: mp.paneId,
-						terminalWorkspaceId: mp.workspaceId ?? "",
-						pid: process.pid,
-						started: false,
-						startedAt: 0,
-						ts: now,
-					});
-				} catch {}
-			}
+			// Record which multiplexer pane owns this session, if any, the same
+			// way the pane tick does. Empty values keep the panel row read-only,
+			// which is the safe default.
+			lastCtx.set(id, ctx);
+			void patchPaneFieldsAsync();
 		}),
 	);
 

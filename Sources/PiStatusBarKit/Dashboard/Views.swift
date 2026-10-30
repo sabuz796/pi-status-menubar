@@ -8,8 +8,6 @@ enum Palette {
     static let trackFill = dynamic(light: NSColor(white: 0, alpha: 0.08), dark: NSColor(white: 1, alpha: 0.11))
     static let emptyTick = dynamic(light: NSColor(white: 0, alpha: 0.22), dark: NSColor(white: 1, alpha: 0.26))
     static let hairline = dynamic(light: NSColor(white: 0, alpha: 0.09), dark: NSColor(white: 1, alpha: 0.11))
-    // A tint, never a solid: the row text sits on top of it and must stay legible.
-    static let leaderFill = NSColor.controlAccentColor.withAlphaComponent(0.26)
     static let peakFill = NSColor.controlAccentColor.withAlphaComponent(0.92)
 
     // System colours so every hue adapts to the appearance. Ordered so no two

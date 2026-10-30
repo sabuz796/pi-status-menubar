@@ -18,11 +18,6 @@ jobs:
       - name: Swift tests
         run: swift test
 
-      - name: Dashboard self-check
-        run: |
-          BIN="$(swift build --show-bin-path)/PiStatusBar"
-          PISTATUS_SESSION_ROOT=tests/fixtures/sessions "$BIN" --selfcheck
-
       - name: Install TypeScript toolchain
         run: npm install --no-audit --no-fund
 
@@ -34,6 +29,11 @@ jobs:
 
       - name: Build script syntax check
         run: bash -n build.sh
+
+      # The real script, not just a syntax check: a broken step used to first
+      # surface inside the release job.
+      - name: Build app bundle
+        run: ./build.sh
 
       - name: Verify required files exist
         run: |

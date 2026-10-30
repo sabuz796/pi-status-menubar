@@ -92,11 +92,28 @@ enum SessionRules {
         return state == "done" ? "idle" : state
     }
 
+    // Kernel start times and the extension's whole-second timestamp can differ
+    // by a fraction of a second, so a reused pid has to start clearly after the
+    // write before the file is retired on that evidence alone.
+    static let pidStartTolerance: Double = 5
+
     // Does the file still belong to a live Pi process? A live session stops
     // refreshing its file while it idles, so age alone must never retire a
     // file with a usable pid; without a pid, age is the only signal left.
-    static func shouldReap(state: String, ts: Double, pid: Int32, processAlive: Bool, now: Double) -> Bool {
-        if pid > 0 { return !processAlive }
+    // A live pid is not enough by itself: macOS reuses pids, and a reused one
+    // would pin a dead session forever. A process that started after the file
+    // was written cannot be the Pi that wrote it.
+    static func shouldReap(state: String, ts: Double, pid: Int32, processAlive: Bool,
+                           processStart: Double?, now: Double) -> Bool {
+        if pid > 0 {
+            guard processAlive else { return true }
+            // A file with no timestamp is corrupt, not evidence of reuse.
+            // A process cannot start in the future: after a backward clock
+            // step the kernel start time is ahead of the file, and that is not
+            // evidence that the pid was reused.
+            if let start = processStart, ts > 0, start <= now, start > ts + pidStartTolerance { return true }
+            return false
+        }
         return effectiveState(state: state, ts: ts, now: now) == "idle" && now - ts > idleReapAfter
     }
 
@@ -104,9 +121,10 @@ enum SessionRules {
     // state, so a staleness timeout stays silent instead of sounding like a
     // finished turn.
     static func decide(state: String, ts: Double, pid: Int32, processAlive: Bool,
-                       previousReported: String?, now: Double) -> SessionDecision {
+                       processStart: Double?, previousReported: String?, now: Double) -> SessionDecision {
         let effective = effectiveState(state: state, ts: ts, now: now)
-        let reaped = shouldReap(state: state, ts: ts, pid: pid, processAlive: processAlive, now: now)
+        let reaped = shouldReap(state: state, ts: ts, pid: pid, processAlive: processAlive,
+                                processStart: processStart, now: now)
         return SessionDecision(effective: effective, reaped: reaped,
                                cue: reaped ? nil : CuePlayer.cue(from: previousReported, to: state))
     }
@@ -115,6 +133,17 @@ enum SessionRules {
     static func processAlive(_ pid: Int32) -> Bool {
         if pid <= 0 { return false }
         return kill(pid, 0) == 0 || errno == EPERM
+    }
+
+    // When the process behind a pid started, in unix seconds, or nil when the
+    // pid is gone or the kernel will not answer. Paired with the file's own
+    // timestamp, this is what tells a live Pi from a reused pid.
+    static func processStartTime(_ pid: Int32) -> Double? {
+        guard pid > 0 else { return nil }
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return Double(info.pbi_start_tvsec)
     }
 
     // MARK: files

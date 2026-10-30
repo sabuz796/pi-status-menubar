@@ -35,6 +35,7 @@ final class LogTests: XCTestCase {
 
     func testSeparatesFromALegacyNewlinelessTail() throws {
         try "{\"event\":\"old\"}{\"event\":\"old2\"}".write(toFile: path, atomically: true, encoding: .utf8)
+        repairGluedLog(at: path)
         logEvent(level: "info", source: "test", event: "new", to: path)
         let ls = lines()
         XCTAssertEqual(ls.count, 3, "the glued legacy tail is split, not extended")
@@ -42,5 +43,27 @@ final class LogTests: XCTestCase {
         XCTAssertEqual(ls[1], "{\"event\":\"old2\"}")
         XCTAssertEqual(try JSONDecoder().decode([String: String].self,
             from: Data(ls[2].utf8))["event"], "new")
+    }
+
+    // The repair rewrites the whole file, so it must not run on the append
+    // path: a record appended by the other writer between the read and the
+    // write would be lost.
+    func testAppendingDoesNotRewriteTheFile() throws {
+        let legacy = "{\"event\":\"glued\"}{"
+        try legacy.write(toFile: path, atomically: true, encoding: .utf8)
+        logEvent(level: "info", source: "test", event: "new", to: path)
+        let whole = try String(contentsOfFile: path, encoding: .utf8)
+        XCTAssertTrue(whole.hasPrefix(legacy), "the append leaves earlier bytes exactly as they were")
+        XCTAssertEqual(whole.filter { $0 == "\n" }.count, 1, "no split happens on append")
+    }
+
+    func testRepairIsIdempotent() throws {
+        try "{\"event\":\"a\"}{\"event\":\"b\"}".write(toFile: path, atomically: true, encoding: .utf8)
+        repairGluedLog(at: path)
+        let once = try String(contentsOfFile: path, encoding: .utf8)
+        repairGluedLog(at: path)
+        let twice = try String(contentsOfFile: path, encoding: .utf8)
+        XCTAssertEqual(once, twice, "a repaired file is left alone")
+        XCTAssertEqual(lines().count, 2)
     }
 }
