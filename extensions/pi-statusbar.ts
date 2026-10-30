@@ -28,7 +28,9 @@
  * }
  *
  * Install: copy this file to ~/.pi/agent/extensions/ (the app does it on
- * first launch). Uninstall: delete it from there and remove ~/.pi/statusbar.
+ * first launch). Uninstall: remove the app first, then this file and
+ * ~/.pi/statusbar. The app reinstalls this extension on every launch, so it
+ * only stays gone once the app is gone.
  */
 
 import * as fs from "node:fs";

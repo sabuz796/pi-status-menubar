@@ -63,6 +63,15 @@ home folder.
 
 ## Uninstall
 
+Installed with Homebrew? One command removes the app, the Pi extension and the saved state:
+
+```bash
+brew uninstall --cask --zap sabuz796/pi-status-menubar/pi-status-bar
+```
+
+Otherwise delete these three. Do the app first: it reinstalls the Pi extension on every launch,
+so the extension only stays gone once the app is gone.
+
 ```bash
 rm -rf "/Applications/Pi Status Bar.app"          # the app
 rm ~/.pi/agent/extensions/pi-statusbar.ts          # the Pi extension
