@@ -1,7 +1,7 @@
-# Source of truth for the Homebrew cask. The release workflow fills in
-# @VERSION@ and @SHA256@ and pushes the result to the tap repo
-# (sabuz796/homebrew-pi-status-menubar), so a tag updates both the
-# GitHub release and the cask in one run.
+# Source of truth for the Homebrew cask. The release workflow substitutes the
+# version and sha256 placeholders and pushes the result to the shared tap
+# (sabuz796/homebrew-tap), so a tag updates both the GitHub release and the
+# cask in one run. Install line: brew install --cask sabuz796/tap/pi-status-bar
 cask "pi-status-bar" do
   version "@VERSION@"
   sha256 "@SHA256@"
@@ -11,7 +11,7 @@ cask "pi-status-bar" do
   desc "Menu bar companion for the Pi coding agent"
   homepage "https://github.com/sabuz796/pi-status-menubar"
 
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "Pi Status Bar.app"
 
@@ -21,8 +21,9 @@ cask "pi-status-bar" do
   ]
 
   caveats <<~EOS
-    Pi Status Bar is signed ad-hoc, not notarized. If macOS blocks the first
-    launch, right-click the app and choose Open, or run:
+    On first launch macOS may report the app is from an unidentified developer.
+    Clear the quarantine flag once, then open it:
+
       xattr -dr com.apple.quarantine "/Applications/Pi Status Bar.app"
   EOS
 end

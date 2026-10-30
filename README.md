@@ -26,7 +26,7 @@ You need macOS 13 or newer and the Pi coding agent installed.
 **The easy way: Homebrew**
 
 ```bash
-brew install --cask sabuz796/pi-status-menubar/pi-status-bar
+brew install --cask sabuz796/tap/pi-status-bar
 ```
 
 The app is signed ad-hoc, not notarized, so macOS may block the first launch. Right-click the app
@@ -66,7 +66,7 @@ home folder.
 Installed with Homebrew? One command removes the app, the Pi extension and the saved state:
 
 ```bash
-brew uninstall --cask --zap sabuz796/pi-status-menubar/pi-status-bar
+brew uninstall --cask --zap sabuz796/tap/pi-status-bar
 ```
 
 Otherwise delete these three. Do the app first: it reinstalls the Pi extension on every launch,
