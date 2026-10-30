@@ -1,6 +1,6 @@
 name: Release
 
-# Building the DMG on a Mac runner and publishing it as a prerelease. A tag is
+# Building the DMG on a Mac runner and publishing it as a stable release. A tag is
 # the only thing that ships: the CI workflow already guards every push.
 on:
   push:
@@ -40,7 +40,7 @@ jobs:
             gh release upload "v$V" --clobber \
               "build/PiStatusBar-$V.dmg" "build/PiStatusBar-$V.dmg.sha256"
           else
-            gh release create "v$V" --draft --prerelease --generate-notes --title "$V" \
+            gh release create "v$V" --draft --generate-notes --title "$V" \
               "build/PiStatusBar-$V.dmg" "build/PiStatusBar-$V.dmg.sha256"
           fi
 
