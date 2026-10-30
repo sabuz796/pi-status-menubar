@@ -28,6 +28,20 @@ final class PanelHoverRow: NSView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    // The row's content is mostly NSTextField labels and stack views, which
+    // capture clicks and keep them from reaching mouseUp below. Route every
+    // click to the row except one on a real button (the sound rows' play
+    // button), so the whole row is the click target.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        var view: NSView? = hit
+        while let v = view, v !== self {
+            if v is NSButton { return v }
+            view = v.superview
+        }
+        return self
+    }
+
     // Act on release inside the row, like a menu item: pressing Quit and
     // dragging off must not quit.
     override func mouseDown(with event: NSEvent) {}
