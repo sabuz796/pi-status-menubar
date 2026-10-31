@@ -42,19 +42,21 @@ struct Session {
     }
 }
 
-// TERM_PROGRAM values do not match the .app names `open -a` resolves, so the
-// ones that need it are translated here, shared by the panel tooltip and the
-// click fallback. Anything else passes to `open -a` unchanged (that lookup is
-// case-insensitive); nil means no terminal to name, so the row has no target.
+// TERM_PROGRAM values do not match the .app names `open -a` resolves, so they
+// are translated here, shared by the panel tooltip and the click fallback.
+// The value comes from a state file anyone running as the user can write, and
+// `open -a` launches whatever it names, full paths included. Only known
+// terminals map to an app; anything else is nil, so the row has no target.
 func terminalAppName(_ termProgram: String) -> String? {
     switch termProgram {
-    case "": return nil
     case "Apple_Terminal": return "Terminal"
     case "iTerm.app": return "iTerm"
     case "WarpTerminal": return "Warp"
     case "vscode": return "Visual Studio Code"
     case "ghostty": return "Ghostty"
-    default: return termProgram
+    case "WezTerm": return "WezTerm"
+    case "Hyper": return "Hyper"
+    default: return nil
     }
 }
 
