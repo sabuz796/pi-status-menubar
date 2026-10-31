@@ -189,15 +189,16 @@ extension StatusController {
     // Runs a CLI and logs command + exit, so a silent focus failure in the
     // field (a GUI PATH, a stale pane id) leaves evidence in log.jsonl.
     private static func runCLILogged(_ args: [String]) -> Int32 {
-        let status = runCLI(args)
+        let (status, stderr) = runCLI(args)
         logEvent(level: "info", source: "app", event: "focus-cli",
-                 ["cmd": args.joined(separator: " "), "exit": String(status)])
+                 ["cmd": args.joined(separator: " "), "exit": String(status), "stderr": stderr])
         return status
     }
 
     // Runs the CLI and waits, with the shared 2 s timeout. Returns the exit
-    // status, or -1 when the tool could not be launched or ran too long.
-    private static func runCLI(_ args: [String]) -> Int32 {
+    // status and stderr, or (-1, "") when the tool could not be launched or
+    // ran too long.
+    private static func runCLI(_ args: [String]) -> (Int32, String) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = args
@@ -208,20 +209,25 @@ extension StatusController {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
         p.environment = env
+        let errPipe = Pipe()
         p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
+        p.standardError = errPipe
         do {
             try p.run()
         } catch {
-            return -1
+            return (-1, "")
         }
         let sem = DispatchSemaphore(value: 0)
         p.terminationHandler = { _ in sem.signal() }
         if sem.wait(timeout: .now() + 2) == .timedOut {
             p.terminate()
-            return -1
+            p.waitUntilExit()
+            return (-1, "")
         }
-        return p.terminationStatus
+        p.waitUntilExit()
+        let data = errPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderr = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return (p.terminationStatus, stderr)
     }
 
     // Serializes focus calls so rapid clicks do not interleave.
