@@ -25,7 +25,7 @@ finished. No window to open. No dock icon. Nothing to keep in the foreground.
 
 You need macOS 13 or newer and the Pi coding agent installed.
 
-**Recommended: Homebrew**
+**🍺 Recommended: Homebrew**
 
 ```bash
 brew install --cask sabuz796/tap/pi-status-bar
@@ -33,21 +33,22 @@ brew install --cask sabuz796/tap/pi-status-bar
 
 Homebrew installs and updates the app for you. Use this way when you can.
 
-**Or download the disk image (DMG)**
+**🍎 Or download the disk image (DMG)**
 
-Every release ships a `.dmg`. Get it from the
+[![Download for Mac](https://img.shields.io/badge/Download_for-Mac-3A3A3C?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/sabuz796/pi-status-menubar/releases/latest) [![Release](https://img.shields.io/github/v/release/sabuz796/pi-status-menubar?style=for-the-badge&color=FF9500)](https://github.com/sabuz796/pi-status-menubar/releases/latest)
+
+Every release ships a `.dmg`, named `PiStatusBar-<version>.dmg`. The buttons above take you to the
 [latest release](https://github.com/sabuz796/pi-status-menubar/releases/latest) page.
 
-1. Download the `.dmg` file, named `PiStatusBar-<version>.dmg`.
-2. Open the file. macOS mounts it as a drive.
-3. Drag **Pi Status Bar** into your **Applications** folder.
-4. Eject the drive.
+1. Open the `.dmg` file. macOS mounts it as a drive.
+2. Drag **Pi Status Bar** into your **Applications** folder.
+3. Eject the drive.
 
 The app is signed ad-hoc, not notarized, so macOS may block the first launch either way.
 Right-click the app and choose **Open**, or run
 `xattr -dr com.apple.quarantine "/Applications/Pi Status Bar.app"` once.
 
-**Or build it yourself**
+**🔧 Or build it yourself**
 
 **1. Build the app**
 
