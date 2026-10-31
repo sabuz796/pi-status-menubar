@@ -25,16 +25,29 @@ finished. No window to open. No dock icon. Nothing to keep in the foreground.
 
 You need macOS 13 or newer and the Pi coding agent installed.
 
-**The easy way: Homebrew**
+**Recommended: Homebrew**
 
 ```bash
 brew install --cask sabuz796/tap/pi-status-bar
 ```
 
-The app is signed ad-hoc, not notarized, so macOS may block the first launch. Right-click the app
-and choose **Open**, or run `xattr -dr com.apple.quarantine "/Applications/Pi Status Bar.app"` once.
+Homebrew installs and updates the app for you. Use this way when you can.
 
-**The other way: build it yourself**
+**Or download the disk image (DMG)**
+
+Every release ships a `.dmg`. Get it from the
+[latest release](https://github.com/sabuz796/pi-status-menubar/releases/latest) page.
+
+1. Download the `.dmg` file, named `PiStatusBar-<version>.dmg`.
+2. Open the file. macOS mounts it as a drive.
+3. Drag **Pi Status Bar** into your **Applications** folder.
+4. Eject the drive.
+
+The app is signed ad-hoc, not notarized, so macOS may block the first launch either way.
+Right-click the app and choose **Open**, or run
+`xattr -dr com.apple.quarantine "/Applications/Pi Status Bar.app"` once.
+
+**Or build it yourself**
 
 **1. Build the app**
 
@@ -71,8 +84,7 @@ Installed with Homebrew? One command removes the app, the Pi extension and the s
 brew uninstall --cask --zap sabuz796/tap/pi-status-bar
 ```
 
-Otherwise delete these three. Do the app first: it reinstalls the Pi extension on every launch,
-so the extension only stays gone once the app is gone.
+If you installed from the DMG or built it yourself, delete these three. Do the app first: it reinstalls the Pi extension on every launch, so the extension only stays gone once the app is gone.
 
 ```bash
 rm -rf "/Applications/Pi Status Bar.app"          # the app
