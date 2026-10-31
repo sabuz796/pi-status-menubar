@@ -54,6 +54,7 @@ func terminalAppName(_ termProgram: String) -> String? {
     case "WarpTerminal": return "Warp"
     case "vscode": return "Visual Studio Code"
     case "ghostty": return "Ghostty"
+    case "alacritty": return "Alacritty"
     case "WezTerm": return "WezTerm"
     case "Hyper": return "Hyper"
     default: return nil

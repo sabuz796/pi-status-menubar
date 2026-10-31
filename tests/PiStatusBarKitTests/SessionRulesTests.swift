@@ -193,6 +193,9 @@ final class SessionRulesTests: XCTestCase {
         XCTAssertEqual(terminalAppName("WarpTerminal"), "Warp")
         XCTAssertEqual(terminalAppName("vscode"), "Visual Studio Code")
         XCTAssertEqual(terminalAppName("ghostty"), "Ghostty")
+        XCTAssertEqual(terminalAppName("alacritty"), "Alacritty")
+        XCTAssertEqual(terminalAppName("WezTerm"), "WezTerm")
+        XCTAssertEqual(terminalAppName("Hyper"), "Hyper")
     }
 
     func testUnknownTermProgramNamesNoApp() {
