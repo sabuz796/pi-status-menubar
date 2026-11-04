@@ -31,6 +31,12 @@ You need macOS 13 or newer and the Pi coding agent installed.
 brew install --cask sabuz796/tap/pi-status-bar
 ```
 
+Upgrading later is the same command; run it again and Homebrew updates the app in place:
+
+```bash
+brew upgrade --cask sabuz796/tap/pi-status-bar
+```
+
 Homebrew installs and updates the app for you. Use this way when you can.
 
 **🍎 Or download the disk image (DMG)**
