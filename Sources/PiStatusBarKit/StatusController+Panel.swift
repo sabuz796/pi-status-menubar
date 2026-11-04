@@ -181,7 +181,7 @@ extension StatusController {
                 let marker: [String: Any] = ["sessionId": id,
                                              "ts": Int(Date().timeIntervalSince1970)]
                 try? JSONSerialization.data(withJSONObject: marker)
-                    .write(to: URL(fileURLWithPath: refreshPanePath))
+                    .write(to: URL(fileURLWithPath: refreshPanePath), options: .atomic)
             }
         }
     }

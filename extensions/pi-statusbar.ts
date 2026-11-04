@@ -96,6 +96,14 @@ interface StatusFile {
 const safeId = (s: string): string =>
 	String(s || "").replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64) || "unknown";
 
+// The state files name projects and working directories, so another account on
+// the machine must not read them. mode applies only to a directory it creates,
+// so an existing one is set again.
+function privateDir(dir: string): void {
+	fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+	fs.chmodSync(dir, 0o700);
+}
+
 function log(level: "info" | "warn" | "error", event: string, fields: Record<string, unknown> = {}): void {
 	try {
 		try {
@@ -105,7 +113,7 @@ function log(level: "info" | "warn" | "error", event: string, fields: Record<str
 			}
 		} catch {}
 		const rec = { ts: new Date().toISOString(), level, source: "extension", event, ...fields };
-		fs.mkdirSync(DIR, { recursive: true });
+		privateDir(DIR);
 		fs.appendFileSync(LOG_PATH, JSON.stringify(rec) + "\n");
 	} catch {}
 }
@@ -159,7 +167,8 @@ function readPrev(id: string): Partial<StatusFile> {
 function writeAtomic(file: string, obj: StatusFile): void {
 	const tmp = file + "." + process.pid + ".tmp";
 	try {
-		fs.mkdirSync(STATE_DIR, { recursive: true });
+		privateDir(DIR);
+		privateDir(STATE_DIR);
 		fs.writeFileSync(tmp, JSON.stringify(obj));
 		fs.renameSync(tmp, file);
 	} catch (e) {

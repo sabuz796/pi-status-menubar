@@ -18,3 +18,12 @@ let refreshPanePath = (stateRootDir as NSString).appendingPathComponent("refresh
 let logFilePath = (stateRootDir as NSString).appendingPathComponent("log.jsonl")
 // Where the panel's bug button sends a report.
 let issuesURL = "https://github.com/sabuz796/pi-status-menubar/issues/new"
+
+// The state files name projects and working directories, so another account on
+// the machine must not read them. createDirectory applies the mode only to a
+// directory it creates, so an existing one is set again here.
+func makePrivateDirectory(_ path: String) {
+    try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true,
+                                             attributes: [.posixPermissions: 0o700])
+    try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
+}
