@@ -113,7 +113,7 @@ are the settings:
 The panel never takes the keyboard, so the app you are typing in keeps the focus. Click anywhere
 outside to dismiss it.
 
-**Clicking a session** brings its terminal to the front, so you can go answer whatever Pi is asking.
+**Clicking a session** brings its terminal to the front, so you can go answer whatever Pi is asking. This works for known terminals: Terminal, iTerm, Warp, Visual Studio Code, Ghostty, Alacritty, WezTerm and Hyper. A session in another terminal shows no click target and you raise that window yourself, so a name from a session file can never launch an arbitrary app.
 
 **The dashboard** reads your Pi session history and shows totals: tokens used, number of sessions and
 messages, days you were active, and breakdowns by language, model and project. It reads the history
@@ -139,7 +139,9 @@ Two small programs, talking through files. No server, no network, no ports.
    beats working beats idle) and draws the icon.
 
 Because the state lives in files, a crash leaves the data intact, several sessions can be watched at
-once, and there is nothing to install on a server or keep in sync.
+once, and there is nothing to install on a server or keep in sync. The state folder is private to
+your user account (0700), so other accounts on the machine cannot read your session files or the
+log.
 
 The app also looks after itself: it quits when no Pi process is left, it will not start a second
 copy of itself, and it cleans up session files belonging to processes that are gone.
