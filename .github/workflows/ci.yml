@@ -35,6 +35,12 @@ jobs:
       - name: Build app bundle
         run: ./build.sh
 
+      # The app refuses to install its Pi extension unless this seal holds, and
+      # it fails closed. A build step that touches the bundle after signing must
+      # fail here, not silently disable the extension for every user.
+      - name: Verify the app bundle still matches its signature
+        run: codesign --verify --deep --strict "build/Pi Status Bar.app"
+
       - name: Verify required files exist
         run: |
           test -f extensions/pi-statusbar.ts
