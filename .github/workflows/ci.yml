@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main, master]
 
+# Pushes, PRs, and fork PRs only ever read the repository. The release job
+# widens its own scope below.
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: macos-latest

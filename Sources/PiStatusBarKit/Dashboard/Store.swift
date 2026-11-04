@@ -204,7 +204,10 @@ final class DashboardStore {
                      ["bytes": String(data.count)])
         }
         let dir = (cachePath as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        // The state root holds private session data, so a runtime recreation
+        // (it was deleted while the app runs) must not fall back to the umask
+        // default; makePrivateDirectory also re-asserts an existing mode.
+        makePrivateDirectory(dir)
         do {
             try data.write(to: URL(fileURLWithPath: cachePath), options: .atomic)
             dirty = false

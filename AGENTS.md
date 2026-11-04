@@ -103,7 +103,7 @@ Only when tasks are truly independent (separate investigations, clear boundaries
 - Ask before irreversible actions or actions with big outside effects.
 
 ## 05. At the time of response always use
-this skill  ```/simple-english```
+this skill  ```/plain-talk```
 
 ## 06. Done means
 
