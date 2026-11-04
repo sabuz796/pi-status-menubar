@@ -184,4 +184,26 @@ final class SessionRulesTests: XCTestCase {
         try? FileManager.default.removeItem(atPath: tmpDir + "/live.json")
         XCTAssertFalse(SessionRules.hasLiveProcess(stateDir: tmpDir), "the app quits when no Pi process remains")
     }
+
+    // MARK: terminal app
+
+    func testKnownTerminalsMapToTheirApp() {
+        XCTAssertEqual(terminalAppName("Apple_Terminal"), "Terminal")
+        XCTAssertEqual(terminalAppName("iTerm.app"), "iTerm")
+        XCTAssertEqual(terminalAppName("WarpTerminal"), "Warp")
+        XCTAssertEqual(terminalAppName("vscode"), "Visual Studio Code")
+        XCTAssertEqual(terminalAppName("ghostty"), "Ghostty")
+        XCTAssertEqual(terminalAppName("alacritty"), "Alacritty")
+        XCTAssertEqual(terminalAppName("WezTerm"), "WezTerm")
+        XCTAssertEqual(terminalAppName("Hyper"), "Hyper")
+    }
+
+    func testUnknownTermProgramNamesNoApp() {
+        // term_program is read from a state file and handed to `open -a`,
+        // which launches any app it names, full paths included.
+        XCTAssertNil(terminalAppName(""), "no terminal, no target")
+        XCTAssertNil(terminalAppName("/tmp/evil.app"), "a path must never reach open -a")
+        XCTAssertNil(terminalAppName("Calculator"), "an unknown name must not launch an app")
+        XCTAssertNil(terminalAppName("tmux"), "tmux is not an app open -a can raise")
+    }
 }

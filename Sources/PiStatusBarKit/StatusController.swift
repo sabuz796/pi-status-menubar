@@ -1,4 +1,5 @@
 import Cocoa
+import Security
 
 final class IconView: NSView {
     let piLayer = CALayer() // white-tinted pi.png glyph
@@ -270,6 +271,16 @@ final class StatusController: NSObject {
                destData == srcData {
                 return
             }
+            // Pi runs this file inside its own process, and the bundle is
+            // usually owned by the user, so an edited copy in Resources would
+            // be reinstalled into every Pi session on every launch. The
+            // signature seals Resources: a mismatch means the file changed
+            // after signing, and then nothing is copied.
+            guard bundleSealIntact() else {
+                logEvent(level: "error", source: "app", event: "extension-install-refused",
+                         ["detail": "app bundle no longer matches its code signature"])
+                return
+            }
             if FileManager.default.fileExists(atPath: dest) {
                 let backup = dest + ".bak"
                 try? FileManager.default.removeItem(atPath: backup)
@@ -283,6 +294,17 @@ final class StatusController: NSObject {
             logEvent(level: "error", source: "app", event: "extension-install-failed",
                      ["detail": String(describing: error)])
         }
+    }
+
+    // Does the running bundle still match its signature, Resources included?
+    // An unsigned bundle (or one that cannot be checked) fails, so a broken
+    // build never installs anything.
+    func bundleSealIntact() -> Bool {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(Bundle.main.bundleURL as CFURL, [], &code) == errSecSuccess,
+              let code else { return false }
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
+        return SecStaticCodeCheckValidity(code, flags, nil) == errSecSuccess
     }
 
     // MARK: polling
