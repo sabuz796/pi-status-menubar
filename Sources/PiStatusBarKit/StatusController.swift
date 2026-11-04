@@ -219,11 +219,11 @@ final class StatusController: NSObject {
         if d.object(forKey: "permissionSound") != nil { cues.permissionEnabled = d.bool(forKey: "permissionSound") }
         if d.object(forKey: "doneSound") != nil { cues.doneEnabled = d.bool(forKey: "doneSound") }
         // Write PID file for extension's appRunning() check
-        try? FileManager.default.createDirectory(atPath: stateRootDir, withIntermediateDirectories: true)
+        makePrivateDirectory(stateRootDir)
         // The extension creates state.d on its first write, but the poll reads
         // it before that. Without the directory every read fails and logs a
         // warning on each 0.4s tick.
-        try? FileManager.default.createDirectory(atPath: stateDir, withIntermediateDirectories: true)
+        makePrivateDirectory(stateDir)
         // Legacy glue is repaired here, not on every append: the repair rewrites
         // the whole file and the append path must stay a single write.
         repairGluedLog()

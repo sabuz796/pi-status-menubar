@@ -80,7 +80,8 @@ test("pi-statusbar extension state machine", async (t) => {
 	const ctx = { cwd: "/tmp/my-app", sessionManager: { getSessionId: () => "sess-1" } };
 	const stateFile = path.join(statusDir, "state.d", "sess-1.json");
 	const readState = () => JSON.parse(fs.readFileSync(stateFile, "utf8"));
-	const TOTAL = 29;
+	const stateDirPath = path.join(statusDir, "state.d");
+	const TOTAL = 30;
 	const done = [];
 
 	function step(name, fn) {
@@ -92,6 +93,13 @@ test("pi-statusbar extension state machine", async (t) => {
 	try {
 		await handlers.session_start(undefined, ctx);
 		step("session_start seeds idle", () => assert.strictEqual(readState().state, "idle"));
+
+		// Issue 6: the files name projects and working directories, so the
+		// directories must stay closed. The fixture creates statusDir readable.
+		step("state dirs are owner only", () => {
+			assert.strictEqual(fs.statSync(statusDir).mode & 0o777, 0o700);
+			assert.strictEqual(fs.statSync(stateDirPath).mode & 0o777, 0o700);
+		});
 
 		// A. A run starts with a fresh clock.
 		await handlers.agent_start(undefined, ctx);
