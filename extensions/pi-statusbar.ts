@@ -108,7 +108,8 @@ function log(level: "info" | "warn" | "error", event: string, fields: Record<str
 	try {
 		try {
 			if (fs.statSync(LOG_PATH).size > LOG_CAP_BYTES) {
-				fs.rmSync(LOG_PATH + ".1", { force: true });
+				// rename replaces the old .1 in one step. Removing it first lets
+				// the app delete the generation this one just moved.
 				fs.renameSync(LOG_PATH, LOG_PATH + ".1");
 			}
 		} catch {}

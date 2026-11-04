@@ -30,8 +30,9 @@ func logEvent(level: String, source: String, event: String,
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
     if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
        let size = attrs[.size] as? Int, size > logCapBytes {
-        try? FileManager.default.removeItem(atPath: path + ".1")
-        try? FileManager.default.moveItem(atPath: path, toPath: path + ".1")
+        // rename(2) replaces the old .1 in one step. Removing it first lets
+        // the other writer delete the generation this one just moved.
+        _ = rename(path, path + ".1")
     }
     var record: [String: Any] = [
         "ts": ISO8601DateFormatter().string(from: Date()),

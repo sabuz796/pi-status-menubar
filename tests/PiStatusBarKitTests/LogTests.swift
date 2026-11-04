@@ -66,4 +66,24 @@ final class LogTests: XCTestCase {
         XCTAssertEqual(once, twice, "a repaired file is left alone")
         XCTAssertEqual(lines().count, 2)
     }
+
+    // Rotation keeps one generation. The cap is 256 KB, so the test fills the
+    // file past it instead of writing thousands of records. This is a
+    // regression guard for the path: the defect it guards against is a race
+    // between two writers, which a sequential test cannot reproduce.
+    func testRotationKeepsThePreviousGeneration() throws {
+        let old = String(repeating: "o", count: 300_000)
+        try old.write(toFile: path, atomically: true, encoding: .utf8)
+        logEvent(level: "info", source: "test", event: "first", to: path)
+        XCTAssertEqual(try String(contentsOfFile: path + ".1", encoding: .utf8), old,
+                       "the full file moves to .1")
+        XCTAssertEqual(lines().count, 1, "the live file starts over with one record")
+
+        let newer = String(repeating: "n", count: 300_000)
+        try newer.write(toFile: path, atomically: true, encoding: .utf8)
+        logEvent(level: "info", source: "test", event: "second", to: path)
+        XCTAssertEqual(try String(contentsOfFile: path + ".1", encoding: .utf8), newer,
+                       "a second rotation replaces .1 in one step")
+        XCTAssertEqual(lines().count, 1)
+    }
 }
