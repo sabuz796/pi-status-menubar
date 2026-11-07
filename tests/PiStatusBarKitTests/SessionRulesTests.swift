@@ -34,8 +34,14 @@ final class SessionRulesTests: XCTestCase {
         let reused = SessionRules.shouldReap(state: "thinking", ts: now - 900, pid: 4242, processAlive: true,
                                              processStart: now - 60, now: now)
         XCTAssertTrue(reused, "a pid that started after the write is a different process")
-        // The silencing of a reaped session is the cue gate at the caller
-        // (evaluate); the reading is silent here because previous equals the state.
+    }
+
+    // A reaped file must not sound: removing it is the event, not a finished
+    // turn. This is the gate evaluate calls before it deletes the file.
+    func testReapedSessionAnnouncesNothing() {
+        let reading = Reading(effective: "idle", glyph: "○", name: "s", sub: "Idle", cue: .done)
+        XCTAssertNil(SessionRules.cueToPlay(reading, reaped: true), "a reaped file must not sound")
+        XCTAssertEqual(SessionRules.cueToPlay(reading, reaped: false), .done, "a live file keeps its cue")
     }
 
     func testLiveProcessStartedBeforeTheFileIsKept() {

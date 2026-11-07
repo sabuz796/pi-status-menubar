@@ -63,9 +63,8 @@ func terminalAppName(_ termProgram: String) -> String? {
 }
 
 enum SessionRules {
-    // Staleness caps - aligned with extension's heartbeat refresh
-    static let workingStaleCap: TimeInterval = 180 // 3 missed heartbeats (30s each)
-    static let permissionStaleCap: TimeInterval = 7200 // 2 hours
+    // How long a pidless file must sit idle before it is retired. The caps
+    // that turn a state idle live with the reading, which owns that meaning.
     static let idleReapAfter: TimeInterval = 900 // 15 minutes for files without a pid
 
     // Kernel start times and the extension's whole-second timestamp can differ
@@ -91,6 +90,13 @@ enum SessionRules {
             return false
         }
         return SessionReading.effectiveState(state: state, ts: ts, now: now) == "idle" && now - ts > idleReapAfter
+    }
+
+    // A file about to be retired announces nothing: the deletion is the event,
+    // not a state change. This gate keeps a staleness timeout or a reused pid
+    // from sounding like a finished turn.
+    static func cueToPlay(_ reading: Reading, reaped: Bool) -> Cue? {
+        reaped ? nil : reading.cue
     }
 
     // Is that process still running?

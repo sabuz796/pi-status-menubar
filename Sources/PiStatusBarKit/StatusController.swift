@@ -331,14 +331,15 @@ final class StatusController: NSObject {
             guard var s = sessions[id] else { continue }
             // What a session file means lives in SessionReading; the mechanics
             // of which file to delete stay in SessionRules. A reaped session is
-            // silent: the cue gate below is what keeps a staleness timeout from
-            // sounding like a finished turn.
+            // silent: SessionRules.cueToPlay drops its cue, so a staleness
+            // timeout does not sound like a finished turn.
             let alive = SessionRules.processAlive(s.pid)
             let reading = SessionReading.read(s, previous: lastReported[id], now: now)
             let reaped = SessionRules.shouldReap(state: s.state, ts: s.ts, pid: s.pid,
                                                  processAlive: alive,
                                                  processStart: alive ? SessionRules.processStartTime(s.pid) : nil,
                                                  now: now)
+            if let cue = SessionRules.cueToPlay(reading, reaped: reaped) { cues.play(cue) }
             if reaped {
                 try? FileManager.default.removeItem(atPath: (stateDir as NSString).appendingPathComponent(id + ".json"))
                 sessions[id] = nil
@@ -348,12 +349,12 @@ final class StatusController: NSObject {
             }
             s.eff = reading.effective
             lastReported[id] = s.state
-            if let cue = reading.cue { cues.play(cue) }
             sessions[id] = s
         }
         let lead = SessionReading.lead(Array(sessions.values), now: now)
         statusItem.button?.toolTip = lead.map { s in
-            let p = sessionParts(s)
+            // Display only: the reading's cue is not used here.
+            let p = sessionParts(SessionReading.read(s, previous: nil, now: now))
             return "\(p.glyph) \(p.name) — \(p.sub)"
         }
         guard let lead = lead else { renderResting(); return }
@@ -498,18 +499,16 @@ final class StatusController: NSObject {
         dashboardPopover?.show(relativeTo: button)
     }
 
-    // Sonoma-style state parts are the reading module's job; color is the one
-    // part that stays here, because it is AppKit, not meaning.
-    func sessionParts(_ s: Session, eff: String? = nil) -> (glyph: String, name: String, sub: String, color: NSColor) {
-        let now = Date().timeIntervalSince1970
-        let p = SessionReading.parts(s, eff: eff, now: now)
-        switch p.effective {
+    // Sonoma-style state parts come from the reading; color is the one part
+    // that stays here, because it is AppKit, not meaning.
+    func sessionParts(_ r: Reading) -> (glyph: String, name: String, sub: String, color: NSColor) {
+        switch r.effective {
         case "permission":
-            return (p.glyph, p.name, p.sub, NSColor.systemRed)
+            return (r.glyph, r.name, r.sub, NSColor.systemRed)
         case "thinking", "tool":
-            return (p.glyph, p.name, p.sub, NSColor.systemBlue)
+            return (r.glyph, r.name, r.sub, NSColor.systemBlue)
         default:
-            return (p.glyph, p.name, p.sub, NSColor.systemGray)
+            return (r.glyph, r.name, r.sub, NSColor.systemGray)
         }
     }
 

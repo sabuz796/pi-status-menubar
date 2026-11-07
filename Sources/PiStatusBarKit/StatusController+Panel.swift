@@ -70,8 +70,10 @@ extension StatusController {
     }
 
     func panelSessions() -> [MenuPanelViewController.SessionRow] {
+        let now = Date().timeIntervalSince1970
         return sessions.values.sorted { $0.ts > $1.ts }.filter { $0.started }.map { s in
-            let p = sessionParts(s)
+            // Display only: the reading's cue is not used here.
+            let p = sessionParts(SessionReading.read(s, previous: nil, now: now))
             return (p.glyph, p.color, p.name, p.sub, s.id,
                     s.terminalApp, s.terminalWindowId, s.terminalWorkspaceId, s.termProgram)
         }

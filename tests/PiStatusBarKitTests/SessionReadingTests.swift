@@ -188,6 +188,21 @@ final class SessionReadingTests: XCTestCase {
         XCTAssertNil(staleWorking.cue, "a staleness timeout must not sound")
     }
 
+    func testStalenessKeepsAdvancingAfterAPreviousReading() {
+        // The file is unchanged while a session waits, so the session object
+        // still carries the previous reading's effective state. The reading
+        // must follow the clock anyway, or neither cap ever fires again.
+        var permission = session("permission", ts: now)
+        permission.eff = SessionReading.read(permission, previous: nil, now: now).effective
+        XCTAssertEqual(SessionReading.read(permission, previous: "permission", now: now + 7300).effective,
+                       "idle", "the 2 hour permission cap still fires after a previous reading")
+
+        var working = session("thinking", ts: now, startedAt: now)
+        working.eff = SessionReading.read(working, previous: nil, now: now).effective
+        XCTAssertEqual(SessionReading.read(working, previous: "thinking", now: now + 200).effective,
+                       "idle", "the 3 minute working cap still fires after a previous reading")
+    }
+
     func testFinishedTurnReadingSounds() throws {
         let finished = try XCTUnwrap(SessionReading.read(
             session("done", ts: now), previous: "thinking", now: now))

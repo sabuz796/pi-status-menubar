@@ -44,12 +44,16 @@ enum SessionReading {
         state == "done" ? "idle" : state
     }
 
+    // Staleness caps, aligned with the extension's heartbeat refresh.
+    static let workingStaleCap: TimeInterval = 180 // 3 missed heartbeats (30s each)
+    static let permissionStaleCap: TimeInterval = 7200 // 2 hours
+
     // The state to show. A working state that stopped being refreshed shows as
     // idle; permission has no heartbeat (waiting on the user can legitimately
     // last hours), so it has its own, longer cap.
     static func effectiveState(state: String, ts: Double, now: Double) -> String {
         if state == "thinking" || state == "tool" || state == "permission" {
-            let cap: Double = state == "permission" ? SessionRules.permissionStaleCap : SessionRules.workingStaleCap
+            let cap: Double = state == "permission" ? permissionStaleCap : workingStaleCap
             if now - ts > cap { return "idle" }
             return state
         }
@@ -68,19 +72,22 @@ enum SessionReading {
 
     // Everything one session means right now: the reading a caller can lay on
     // the icon, a panel row, or a tooltip without touching the rules again.
+    // The effective state is always recomputed from the file: `s.eff` still
+    // holds the previous tick's value while the file is unchanged, and
+    // staleness must keep advancing with the clock.
     static func read(_ s: Session, previous: String?, now: Double) -> Reading {
-        let effective = s.eff.isEmpty ? effectiveState(state: s.state, ts: s.ts, now: now) : s.eff
-        let p = parts(s, eff: effective, now: now)
+        let effective = effectiveState(state: s.state, ts: s.ts, now: now)
+        let p = parts(s, effective: effective, now: now)
         return Reading(effective: effective, glyph: p.glyph, name: p.name, sub: p.sub,
                        cue: cue(from: previous, to: s.state))
     }
 
     // The session the menu bar item shows when several are live: permission
-    // outranks work, work outranks idle, ties break by recency. Unstamped
-    // sessions are read fresh with the given clock.
+    // outranks work, work outranks idle, ties break by recency. Every session
+    // is read fresh with the given clock.
     static func lead(_ sessions: [Session], now: Double) -> Session? {
         func rank(_ s: Session) -> Int {
-            priority(of: s.eff.isEmpty ? effectiveState(state: s.state, ts: s.ts, now: now) : s.eff)
+            priority(of: effectiveState(state: s.state, ts: s.ts, now: now))
         }
         return sessions.max { a, b in
             let pa = rank(a), pb = rank(b)
@@ -88,24 +95,23 @@ enum SessionReading {
         }
     }
 
-    // Sonoma-style state parts: glyph + name + one-line status text. The
-    // deciding state comes back too, because color is the one reading that
-    // stays with the caller (AppKit NSColor, not a rule of meaning).
-    static func parts(_ s: Session, eff: String?, now: Double) -> (glyph: String, name: String, sub: String, effective: String) {
-        let e = eff ?? (s.eff.isEmpty ? effectiveState(state: s.state, ts: s.ts, now: now) : s.eff)
+    // Sonoma-style state parts: glyph + name + one-line status text. Color is
+    // the one reading kept out of here: it is AppKit, not meaning, so the
+    // caller applies it to the effective state.
+    private static func parts(_ s: Session, effective: String, now: Double) -> (glyph: String, name: String, sub: String) {
         // Pi's own session name is what distinguishes two sessions in the
         // same project; fall back to the project folder when it is empty.
         let name = !s.sessionName.isEmpty ? s.sessionName
                    : (s.project.isEmpty ? "session" : s.project)
-        switch e {
+        switch effective {
         case "permission":
-            return ("●", name, "Awaiting input", e)
+            return ("●", name, "Awaiting input")
         case "thinking", "tool":
             var sub = s.label.isEmpty ? "Working" : s.label
             if s.startedAt > 0 { sub += " · " + elapsed(max(0, Int(now - s.startedAt))) }
-            return ("◐", name, sub, e)
+            return ("◐", name, sub)
         default:
-            return ("○", name, "Idle", e)
+            return ("○", name, "Idle")
         }
     }
 
