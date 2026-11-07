@@ -1,10 +1,11 @@
 import Foundation
 import Darwin
 
-// The state files the Pi extension writes, and the rules for what they
-// mean: which state wins, when a file went stale, and whether the Pi
-// process behind it is still alive. No AppKit here on purpose - the rules
-// are checkable on their own (swift test, SessionRulesTests).
+// The state files the Pi extension writes, and the rules for what they mean
+// mechanically: which file wins, when a file went stale, whether the Pi process
+// behind it is still alive, and who may delete what. The meaning of a session
+// (state, glyphs, cues, lead selection) lives in SessionReading.swift; both are
+// AppKit-free on purpose and checkable on their own (swift test).
 
 // One session's state file, as the extension wrote it.
 struct Session {
@@ -61,39 +62,10 @@ func terminalAppName(_ termProgram: String) -> String? {
     }
 }
 
-// What one session file means right now.
-struct SessionDecision {
-    let effective: String // the state to show
-    let reaped: Bool // the file is dead: delete it
-    let cue: Cue? // the sound the change owes, if any
-}
-
 enum SessionRules {
-    // Staleness caps - aligned with extension's heartbeat refresh
-    static let workingStaleCap: TimeInterval = 180 // 3 missed heartbeats (30s each)
-    static let permissionStaleCap: TimeInterval = 7200 // 2 hours
+    // How long a pidless file must sit idle before it is retired. The caps
+    // that turn a state idle live with the reading, which owns that meaning.
     static let idleReapAfter: TimeInterval = 900 // 15 minutes for files without a pid
-
-    // Which state wins when several sessions are live.
-    static func priority(of eff: String) -> Int {
-        switch eff {
-        case "permission": return 2
-        case "thinking", "tool": return 1
-        default: return 0
-        }
-    }
-
-    // The state to show. A working state that stopped being refreshed shows
-    // as idle; permission has no heartbeat - waiting on the user can
-    // legitimately last hours.
-    static func effectiveState(state: String, ts: Double, now: Double) -> String {
-        if state == "thinking" || state == "tool" || state == "permission" {
-            let cap: Double = state == "permission" ? permissionStaleCap : workingStaleCap
-            if now - ts > cap { return "idle" }
-            return state
-        }
-        return state == "done" ? "idle" : state
-    }
 
     // Kernel start times and the extension's whole-second timestamp can differ
     // by a fraction of a second, so a reused pid has to start clearly after the
@@ -117,19 +89,14 @@ enum SessionRules {
             if let start = processStart, ts > 0, start <= now, start > ts + pidStartTolerance { return true }
             return false
         }
-        return effectiveState(state: state, ts: ts, now: now) == "idle" && now - ts > idleReapAfter
+        return SessionReading.effectiveState(state: state, ts: ts, now: now) == "idle" && now - ts > idleReapAfter
     }
 
-    // Everything one file means right now. The cue follows the reported
-    // state, so a staleness timeout stays silent instead of sounding like a
-    // finished turn.
-    static func decide(state: String, ts: Double, pid: Int32, processAlive: Bool,
-                       processStart: Double?, previousReported: String?, now: Double) -> SessionDecision {
-        let effective = effectiveState(state: state, ts: ts, now: now)
-        let reaped = shouldReap(state: state, ts: ts, pid: pid, processAlive: processAlive,
-                                processStart: processStart, now: now)
-        return SessionDecision(effective: effective, reaped: reaped,
-                               cue: reaped ? nil : CuePlayer.cue(from: previousReported, to: state))
+    // A file about to be retired announces nothing: the deletion is the event,
+    // not a state change. This gate keeps a staleness timeout or a reused pid
+    // from sounding like a finished turn.
+    static func cueToPlay(_ reading: Reading, reaped: Bool) -> Cue? {
+        reaped ? nil : reading.cue
     }
 
     // Is that process still running?

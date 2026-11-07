@@ -329,31 +329,32 @@ final class StatusController: NSObject {
         let now = Date().timeIntervalSince1970
         for id in Array(sessions.keys) {
             guard var s = sessions[id] else { continue }
-            // What a session file means lives in SessionRules, where it is
-            // covered by SessionRulesTests.
+            // What a session file means lives in SessionReading; the mechanics
+            // of which file to delete stay in SessionRules. A reaped session is
+            // silent: SessionRules.cueToPlay drops its cue, so a staleness
+            // timeout does not sound like a finished turn.
             let alive = SessionRules.processAlive(s.pid)
-            let decision = SessionRules.decide(state: s.state, ts: s.ts, pid: s.pid,
-                                               processAlive: alive,
-                                               processStart: alive ? SessionRules.processStartTime(s.pid) : nil,
-                                               previousReported: lastReported[id], now: now)
-            if decision.reaped {
+            let reading = SessionReading.read(s, previous: lastReported[id], now: now)
+            let reaped = SessionRules.shouldReap(state: s.state, ts: s.ts, pid: s.pid,
+                                                 processAlive: alive,
+                                                 processStart: alive ? SessionRules.processStartTime(s.pid) : nil,
+                                                 now: now)
+            if let cue = SessionRules.cueToPlay(reading, reaped: reaped) { cues.play(cue) }
+            if reaped {
                 try? FileManager.default.removeItem(atPath: (stateDir as NSString).appendingPathComponent(id + ".json"))
                 sessions[id] = nil
                 fileMTimes[id + ".json"] = nil
                 lastReported[id] = nil
                 continue
             }
-            s.eff = decision.effective
+            s.eff = reading.effective
             lastReported[id] = s.state
-            if let cue = decision.cue { cues.play(cue) }
             sessions[id] = s
         }
-        let lead = sessions.values.max { a, b in
-            let pa = SessionRules.priority(of: a.eff), pb = SessionRules.priority(of: b.eff)
-            return pa == pb ? a.ts < b.ts : pa < pb
-        }
+        let lead = SessionReading.lead(Array(sessions.values), now: now)
         statusItem.button?.toolTip = lead.map { s in
-            let p = sessionParts(s)
+            // Display only: the reading's cue is not used here.
+            let p = sessionParts(SessionReading.read(s, previous: nil, now: now))
             return "\(p.glyph) \(p.name) — \(p.sub)"
         }
         guard let lead = lead else { renderResting(); return }
@@ -468,7 +469,7 @@ final class StatusController: NSObject {
         guard let button = statusItem.button else { return }
         var text = activeBase
         if showTimer, startedAt > 0 {
-            let clock = elapsed(max(0, Int(Date().timeIntervalSince1970 - startedAt)))
+            let clock = SessionReading.elapsed(max(0, Int(Date().timeIntervalSince1970 - startedAt)))
             text = text.isEmpty ? clock : text + "  " + clock
         }
         guard text != lastTitleText else { return }
@@ -486,11 +487,6 @@ final class StatusController: NSObject {
         button.attributedTitle = NSAttributedString(string: " \(text)", attributes: attrs)
     }
 
-    func elapsed(_ secs: Int) -> String {
-        let m = secs / 60, s = secs % 60
-        return m > 0 ? "\(m)m \(s)s" : "\(s)s"
-    }
-
 // MARK: dashboard popover
 
     func showDashboardPopover() {
@@ -503,23 +499,16 @@ final class StatusController: NSObject {
         dashboardPopover?.show(relativeTo: button)
     }
 
-    // Sonoma-style state parts: colored glyph + name + one-line status text.
-    func sessionParts(_ s: Session, eff: String? = nil) -> (glyph: String, name: String, sub: String, color: NSColor) {
-        let now = Date().timeIntervalSince1970
-        let e = eff ?? (s.eff.isEmpty ? SessionRules.effectiveState(state: s.state, ts: s.ts, now: now) : s.eff)
-        // Pi's own session name is what distinguishes two sessions in the
-        // same project; fall back to the project folder when it is empty.
-        let name = !s.sessionName.isEmpty ? s.sessionName
-                   : (s.project.isEmpty ? "session" : s.project)
-        switch e {
+    // Sonoma-style state parts come from the reading; color is the one part
+    // that stays here, because it is AppKit, not meaning.
+    func sessionParts(_ r: Reading) -> (glyph: String, name: String, sub: String, color: NSColor) {
+        switch r.effective {
         case "permission":
-            return ("●", name, "Awaiting input", NSColor.systemRed)
+            return (r.glyph, r.name, r.sub, NSColor.systemRed)
         case "thinking", "tool":
-            var sub = s.label.isEmpty ? "Working" : s.label
-            if s.startedAt > 0 { sub += " · " + elapsed(max(0, Int(now - s.startedAt))) }
-            return ("◐", name, sub, NSColor.systemBlue)
+            return (r.glyph, r.name, r.sub, NSColor.systemBlue)
         default:
-            return ("○", name, "Idle", NSColor.systemGray)
+            return (r.glyph, r.name, r.sub, NSColor.systemGray)
         }
     }
 
